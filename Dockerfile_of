@@ -1,0 +1,18 @@
+# docker run --rm -it -v $(pwd)/../videos:/video:ro --entrypoint /bin/bash of
+# -v $(pwd)/static/features_videos:/data
+# docker build -f Dockerfile_of -t of .
+FROM python:3.7
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN pip install --trusted-host pypi.python.org dvt && pip install pillow && pip install scikit-image && pip install opencv-python && pip install numpy
+RUN apt-get update && apt-get install -y vim
+
+COPY test.py /root
+COPY Her_bluray_Szene_11_25fps.mp4 /root
+
+VOLUME "/video"
+
+WORKDIR /root
+
+ENTRYPOINT ["python3", "test.py"]
