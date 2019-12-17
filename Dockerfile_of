@@ -1,18 +1,21 @@
-# docker run --rm -it -v $(pwd)/../videos:/video:ro --entrypoint /bin/bash of
-# -v $(pwd)/static/features_videos:/data
 # docker build -f Dockerfile_of -t of .
+# docker run --rm -it -v $(pwd)/../videos:/root/video:ro -v $(pwd)/static/features_videos:/root/data --entrypoint /bin/bash of
+# -v $(pwd)/static/features_videos:/data
+
 FROM python:3.7
 
 ENV DEBIAN_FRONTEND noninteractive
 
-RUN pip install --trusted-host pypi.python.org dvt && pip install pillow && pip install scikit-image && pip install opencv-python && pip install numpy
+COPY requirements_optical_flow.txt /root
+
+RUN pip install --trusted-host pypi.python.org -r /root/requirements_optical_flow.txt
 RUN apt-get update && apt-get install -y vim
 
-COPY test.py /root
-COPY Her_bluray_Szene_11_25fps.mp4 /root
+COPY test_optical_flow.py /root
 
 VOLUME "/video"
+VOLUME "/data"
 
 WORKDIR /root
 
-ENTRYPOINT ["python3", "test.py"]
+ENTRYPOINT ["python3", "test_optical_flow.py"]

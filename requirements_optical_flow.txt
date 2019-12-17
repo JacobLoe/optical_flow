@@ -1,0 +1,6 @@
+pillow
+scikit-image
+tqdm
+numpy
+dvt
+opencv-python
