@@ -71,7 +71,7 @@ def main(videos_path,features_path, video_resolution):
                          os.path.relpath(p, cp))[:-4])  # add a new dir 'VIDEO_FILE_NAME/shot_detection' to the path
                          for p in list_videos_path]  # create a list of paths where all the data (shot-detection,frames,features) are saved to
 
-    for v_path, f_path in zip(list_videos_path[8:], list_features_path[8:]):
+    for v_path, f_path in zip(list_videos_path, list_features_path):
         get_optical_flow(v_path, f_path, video_resolution)
 
 
