@@ -5,8 +5,7 @@ import argparse
 import xml.etree.ElementTree as ET
 import glob
 from tqdm import tqdm
-import csv
-
+import shutil
 
 def read_shotdetect_xml(path):
     tree = ET.parse(path)
@@ -14,14 +13,12 @@ def read_shotdetect_xml(path):
     timestamps = []
     for child in root[0].iter():
         if child.tag == 'shot':
-            items = child.items()
-            timestamps.append((int(items[4][1]), int(items[4][1])+int(items[2][1])-1))  # ms
+            attribs = child.attrib
+            timestamps.append((int(attribs['msbegin']), int(attribs['msbegin'])+int(attribs['msduration'])-1))  # ms
     return timestamps  # in ms
 
 
-def get_optical_flow(v_path, f_path, video_resolution, ang_bins, mag_bins):
-    shot_timestamps = read_shotdetect_xml(os.path.join(f_path, 'shot_detection/result.xml'))
-
+def get_optical_flow(v_path, shot_timestamps, video_resolution, ang_bins, mag_bins):
     ang_hist = []
     mag_hist = []
     vid = cv2.VideoCapture(v_path)
@@ -29,20 +26,22 @@ def get_optical_flow(v_path, f_path, video_resolution, ang_bins, mag_bins):
 
         vid.set(cv2.CAP_PROP_POS_MSEC, start_frame_ms)
         ret, frame = vid.read()
-        prvs = cv2.resize(frame, video_resolution)
-        prvs = cv2.cvtColor(prvs, cv2.COLOR_BGR2GRAY)
+        prvs_frame = cv2.resize(frame, video_resolution)
+        prvs_frame = cv2.cvtColor(prvs_frame, cv2.COLOR_BGR2GRAY)
+
+	# max_mag = np.sqrt(np.power()+np.power())
 
         offset = int(end_frame_ms / 1000 - start_frame_ms / 1000)     # calculate an offset to the start_frame to get the last frame of the shot
         vid.set(cv2.CAP_PROP_POS_MSEC, start_frame_ms + offset*1000)
         ret, frame = vid.read()
-        next = cv2.resize(frame, video_resolution)
-        next = cv2.cvtColor(next, cv2.COLOR_BGR2GRAY)
+        next_frame = cv2.resize(frame, video_resolution)
+        next_frame = cv2.cvtColor(next_frame, cv2.COLOR_BGR2GRAY)
 
         # create an image with the magnitudes and angles at each pixels
-        flow = cv2.calcOpticalFlowFarneback(prvs, next, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+        flow = cv2.calcOpticalFlowFarneback(prvs_frame, next_frame, None, 0.5, 3, 15, 3, 5, 1.2, 0)
         mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-        ang = ang * 180 / np.pi / 2     # convert the angles to degrees
-
+        ang = ang * 180 / np.pi     # convert the angles to degrees
+	# mag = mag/max_mag *100
         # create histograms for the angles and magnitudes
         ang_hist.append(np.histogram(ang, bins=ang_bins)[0])
         mag_hist.append(np.histogram(mag, bins=mag_bins)[0])
@@ -52,15 +51,23 @@ def get_optical_flow(v_path, f_path, video_resolution, ang_bins, mag_bins):
     return ang_hist, mag_hist
 
 
-def write_to_csv(f_path, ang_hist, mag_hist):
+def write_ang_and_mag_to_csv(f_path, shot_timestamps, ang_hist, mag_hist):
+    if not os.path.isdir(os.path.join(f_path, 'optical_flow')):
+        os.makedirs(os.path.join(f_path, 'optical_flow'))
 
-    shot_timestamps = read_shotdetect_xml(os.path.join(f_path, 'shot_detection/result.xml'))
+    ang_csv_path = os.path.join(f_path, 'optical_flow/ang_optical_flow.csv')
+    with open(ang_csv_path, 'w', newline='') as f:
+        for i, ang in enumerate(ang_hist):
+            line = str(shot_timestamps[i][0])+' '+str(shot_timestamps[i][1])+' '+"".join(str(list(ang))[1:-1].split())
+            f.write(line)
+            f.write('\n')
 
-    for i, st in enumerate(shot_timestamps):
-        start_frame_ms, end_frame_ms = st
-        csv_path = os.path.join(f_path, 'optical_flow/'+str(start_frame_ms)+'.csv')
-        break
-    # print(csv_path)
+    mag_csv_path = os.path.join(f_path, 'optical_flow/mag_optical_flow.csv')
+    with open(mag_csv_path, 'w', newline='') as f:
+        for i, mag in enumerate(mag_hist):
+            line = str(shot_timestamps[i][0])+' '+str(shot_timestamps[i][1])+' '+"".join(str(list(mag))[1:-1].split())
+            f.write(line)
+            f.write('\n')
 
 
 def main(videos_path, features_path, video_resolution, ang_bins, mag_bins):
@@ -70,16 +77,28 @@ def main(videos_path, features_path, video_resolution, ang_bins, mag_bins):
 
     list_features_path = [os.path.join(
                          os.path.join(features_path,
-                         os.path.relpath(p, cp))[:-4])  # add a new dir 'VIDEO_FILE_NAME/shot_detection' to the path
+                         os.path.relpath(p, cp))[:-4])
                          for p in list_videos_path]  # create a list of paths where all the data (shot-detection,frames,features) are saved to
 
-    # print(list_videos_path[7])
-    for v_path, f_path in zip(list_videos_path[7:], list_features_path[7:]):
-    # for v_path, f_path in zip(list_videos_path, list_features_path):
-        ang_hist, mag_hist = get_optical_flow(v_path, f_path, video_resolution, ang_bins, mag_bins)
-        write_to_csv(f_path, ang_hist, mag_hist)
-        break
+    # for v_path, f_path in zip(list_videos_path[7:], list_features_path[7:]):
+    done = 0
+    while done < len(list_videos_path):
+        for v_path, f_path in tqdm(zip(list_videos_path, list_features_path), total=len(list_videos_path)):
 
+            shot_timestamps = read_shotdetect_xml(os.path.join(f_path, 'shot_detection/result.xml'))
+
+            if not os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
+                ang_hist, mag_hist = get_optical_flow(v_path, shot_timestamps, video_resolution, ang_bins, mag_bins)
+
+                write_ang_and_mag_to_csv(f_path, shot_timestamps, ang_hist, mag_hist)
+                open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
+                done += 1
+            elif os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):    # do nothing if a .done-file exists
+                done += 1
+                print('image-extraction was already done for {}'.format(os.path.split(v_path)[1]))
+            elif os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
+                shutil.rmtree(os.path.join(f_path, 'optical_flow'))
+                print('image-extraction was not done correctly for {}'.format(os.path.split(v_path)[1]))
 
 if __name__ == "__main__":
 
