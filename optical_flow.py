@@ -16,16 +16,24 @@ def get_optical_flow(v_path, frame_width):
 
     vid = cv2.VideoCapture(v_path)
     summed_mags = []
-    timestamp_ms = 0
+    timestamp_frames = 0
+    step_size_in_frames = vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
+    print('fps', vid.get(cv2.CAP_PROP_FPS), 'step_size', STEP_SIZE, 'step_size_in_frames', step_size_in_frames)
     # iterate through all shots in a movie
     while vid.isOpened():
         # Capture frame-by-frame
-        vid.set(cv2.CAP_PROP_POS_MSEC, timestamp_ms)
+        # print('before read', 'cv2.CAP_PROP_POS_MSEC', vid.get(cv2.CAP_PROP_POS_MSEC), 'timestamp_ms', timestamp_ms,
+        #       'cv2.CAP_PROP_POS_FRAMES', vid.get(cv2.CAP_PROP_POS_FRAMES), 'fps', vid.get(cv2.CAP_PROP_FPS),
+        #       'ms', vid.get(cv2.CAP_PROP_POS_FRAMES)*vid.get(cv2.CAP_PROP_FPS),
+        #       'diff', timestamp_ms-vid.get(cv2.CAP_PROP_POS_FRAMES)*vid.get(cv2.CAP_PROP_FPS))
+        # vid.grab()
+        vid.set(cv2.CAP_PROP_POS_FRAMES, timestamp_frames)
         ret, curr_frame = vid.read()  # if ret is false, frame has no content
+        # ret, curr_frame = vid.retrieve()
         if not ret:
             break
 
-        if timestamp_ms == 0:
+        if timestamp_frames == 0:
 
             resolution_old = np.shape(curr_frame)
             ratio = resolution_old[1]/resolution_old[0]
@@ -56,7 +64,7 @@ def get_optical_flow(v_path, frame_width):
             summed_mags.append(np.sum(mag) / (np.shape(mag)[0] * np.shape(mag)[1]))
 
             prev_frame = curr_frame     # save the current as the new previous frame for the next iteration
-        timestamp_ms += STEP_SIZE
+        timestamp_frames += step_size_in_frames
 
     vid.release()
     cv2.destroyAllWindows()
@@ -66,8 +74,8 @@ def get_optical_flow(v_path, frame_width):
     # round the values to one significant digit
     rounded_mags = [np.round(x, decimals=DECIMALS) for x in scaled_mags]
     # digitize the values,
-    indices_digitized_mags = np.digitize(rounded_mags, BINS)    # indices start a 1, npumpy array with shape of rounded_mags
-    digitized_mags = [BINS[i-1] for i in indices_digitized_mags]    #
+    indices_digitized_mags = np.digitize(rounded_mags, BINS)    # indices start a 1, returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
+    digitized_mags = [BINS[i-1] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
     return digitized_mags
 
