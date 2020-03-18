@@ -17,7 +17,7 @@ def get_optical_flow(v_path, frame_width):
     vid = cv2.VideoCapture(v_path)
     summed_mags = []
     timestamp_frames = 0
-    step_size_in_frames = vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
+    step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
     print('fps', vid.get(cv2.CAP_PROP_FPS), 'step_size', STEP_SIZE, 'step_size_in_frames', step_size_in_frames)
     # iterate through all shots in a movie
     while vid.isOpened():
@@ -27,8 +27,11 @@ def get_optical_flow(v_path, frame_width):
         #       'ms', vid.get(cv2.CAP_PROP_POS_FRAMES)*vid.get(cv2.CAP_PROP_FPS),
         #       'diff', timestamp_ms-vid.get(cv2.CAP_PROP_POS_FRAMES)*vid.get(cv2.CAP_PROP_FPS))
         # vid.grab()
+        # print('before', 'frames', vid.get(cv2.CAP_PROP_POS_FRAMES), 'timestamp_frames', timestamp_frames)
         vid.set(cv2.CAP_PROP_POS_FRAMES, timestamp_frames)
         ret, curr_frame = vid.read()  # if ret is false, frame has no content
+        # print('after', 'frames', vid.get(cv2.CAP_PROP_POS_FRAMES), 'timestamp_frames', timestamp_frames)
+        # print('--------------')
         # ret, curr_frame = vid.retrieve()
         if not ret:
             break
