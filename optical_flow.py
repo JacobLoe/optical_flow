@@ -2,13 +2,11 @@ import numpy as np
 import cv2
 import os
 import argparse
-import xml.etree.ElementTree as ET
 import glob
 from tqdm import tqdm
 import shutil
 
 STEP_SIZE = 300     # the steps in ms that are taken in a shot
-DECIMALS = 2        # the number of decimals after rounding
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
 
 
@@ -18,49 +16,49 @@ def get_optical_flow(v_path, frame_width):
     summed_mags = []
     timestamp_frames = 0
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
-    print('fps', vid.get(cv2.CAP_PROP_FPS), 'step_size', STEP_SIZE, 'step_size_in_frames', step_size_in_frames)
+    # print('fps', vid.get(cv2.CAP_PROP_FPS), 'step_size', STEP_SIZE, 'step_size_in_frames', step_size_in_frames)
     # iterate through all shots in a movie
     while vid.isOpened():
         # Capture frame-by-frame
-        # print('before read', 'cv2.CAP_PROP_POS_MSEC', vid.get(cv2.CAP_PROP_POS_MSEC), 'timestamp_ms', timestamp_ms,
-        #       'cv2.CAP_PROP_POS_FRAMES', vid.get(cv2.CAP_PROP_POS_FRAMES), 'fps', vid.get(cv2.CAP_PROP_FPS),
-        #       'ms', vid.get(cv2.CAP_PROP_POS_FRAMES)*vid.get(cv2.CAP_PROP_FPS),
-        #       'diff', timestamp_ms-vid.get(cv2.CAP_PROP_POS_FRAMES)*vid.get(cv2.CAP_PROP_FPS))
-        # vid.grab()
-        # print('before', 'frames', vid.get(cv2.CAP_PROP_POS_FRAMES), 'timestamp_frames', timestamp_frames)
+
         vid.set(cv2.CAP_PROP_POS_FRAMES, timestamp_frames)
         ret, curr_frame = vid.read()  # if ret is false, frame has no content
-        # print('after', 'frames', vid.get(cv2.CAP_PROP_POS_FRAMES), 'timestamp_frames', timestamp_frames)
-        # print('--------------')
-        # ret, curr_frame = vid.retrieve()
+
         if not ret:
             break
 
         if timestamp_frames == 0:
 
-            resolution_old = np.shape(curr_frame)
-            ratio = resolution_old[1]/resolution_old[0]
-            frame_height = int(frame_width/ratio)
-            resolution_new = (frame_width, frame_height)
-            prev_frame = cv2.resize(curr_frame, resolution_new)
-            prev_frame = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+            if frame_width:
+                resolution_old = np.shape(curr_frame)
+                ratio = resolution_old[1]/resolution_old[0]
+                frame_height = int(frame_width/ratio)
+                resolution_new = (frame_width, frame_height)
+                curr_frame = cv2.resize(curr_frame, resolution_new)
+            curr_frame = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+            prev_frame = curr_frame
         else:
 
-            resolution_old = np.shape(curr_frame)
-            ratio = resolution_old[1]/resolution_old[0]
-            frame_height = int(frame_width/ratio)
-            resolution_new = (frame_width, frame_height)
-            curr_frame = cv2.resize(curr_frame, resolution_new)
-
+            if frame_width:
+                resolution_old = np.shape(curr_frame)
+                ratio = resolution_old[1]/resolution_old[0]
+                frame_height = int(frame_width/ratio)
+                resolution_new = (frame_width, frame_height)
+                curr_frame = cv2.resize(curr_frame, resolution_new)
             curr_frame = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
 
             # create the optical flow for two neighbouring frames
-            flow = cv2.calcOpticalFlowFarneback(prev_frame, curr_frame, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+            flow = cv2.calcOpticalFlowFarneback(prev_frame, curr_frame,
+                                                flow=None,
+                                                pyr_scale=0.5,
+                                                levels=3,
+                                                winsize=15,
+                                                iterations=3,
+                                                poly_n=5,
+                                                poly_sigma=1.2,
+                                                flags=0)
+            # mag and ang are matrices with the shape of the frame
             mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-
-            # calculate the maximum possible magnitude
-            max_mag = np.sqrt(np.power(np.shape(curr_frame)[0], 2) + np.power(np.shape(curr_frame)[1], 2))
-            mag = mag / max_mag
 
             # sum up all the magnitudes between neighboring frames in the shot creating a single value
             # scale the value by the number of pixels in the image to keep the value between 0 and 1
@@ -74,10 +72,9 @@ def get_optical_flow(v_path, frame_width):
 
     # scale to a max-value of 1
     scaled_mags = summed_mags/np.max(summed_mags)
-    # round the values to one significant digit
-    rounded_mags = [np.round(x, decimals=DECIMALS) for x in scaled_mags]
+
     # digitize the values,
-    indices_digitized_mags = np.digitize(rounded_mags, BINS)    # indices start a 1, returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
+    indices_digitized_mags = np.digitize(scaled_mags, BINS, right=True)    # indices start a 1, returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     digitized_mags = [BINS[i-1] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
     return digitized_mags
