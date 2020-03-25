@@ -16,7 +16,7 @@ def get_optical_flow(v_path, frame_width):
     summed_mags = []
     timestamp_frames = 0
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
-    # print('fps', vid.get(cv2.CAP_PROP_FPS), 'step_size', STEP_SIZE, 'step_size_in_frames', step_size_in_frames)
+    timestamps = []
     # iterate through all shots in a movie
     while vid.isOpened():
         # Capture frame-by-frame
@@ -63,6 +63,7 @@ def get_optical_flow(v_path, frame_width):
             # sum up all the magnitudes between neighboring frames in the shot creating a single value
             # scale the value by the number of pixels in the image to keep the value between 0 and 1
             summed_mags.append(np.sum(mag) / (np.shape(mag)[0] * np.shape(mag)[1]))
+            timestamps.append(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000))
 
             prev_frame = curr_frame     # save the current as the new previous frame for the next iteration
         timestamp_frames += step_size_in_frames
@@ -70,33 +71,44 @@ def get_optical_flow(v_path, frame_width):
     vid.release()
     cv2.destroyAllWindows()
 
-    # scale to a max-value of 1
-    scaled_mags = summed_mags/np.max(summed_mags)
+    # scale to a max-value of 1, if the max value is 0 scaling is skipped to avoid nans
+    if np.max(summed_mags) != 0:
+        scaled_mags = summed_mags/np.max(summed_mags)
+    else:
+        scaled_mags = summed_mags
 
-    # digitize the values,
-    indices_digitized_mags = np.digitize(scaled_mags, BINS, right=True)    # indices start a 1, returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
-    digitized_mags = [BINS[i-1] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
+    # FIXME if changed to right=False, indices start at 1 instead of 0
+    indices_digitized_mags = np.digitize(scaled_mags, BINS, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
+    digitized_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
-    return digitized_mags
+    return digitized_mags, timestamps
 
 
-def group_movie_magnitudes(digitized_mags):
+def group_movie_magnitudes(digitized_mags, timestamps):
     grouped_mags = []
     shot_timestamps = []
     prev_mag = 0
     start_ms = 0
+    end_ms = 0
     # iterate through the magnitudes,
-    for i, mag in enumerate(digitized_mags):
+    for i, curr_mag in enumerate(digitized_mags):
         if i == 0:
-            prev_mag = mag
-        elif mag != prev_mag:
-            grouped_mags.append(mag)
-            end_ms = i*STEP_SIZE
-            shot_timestamps.append((start_ms, end_ms))
-            prev_mag = mag
-            start_ms = end_ms
-        else:
-            pass
+            grouped_mags.append(curr_mag)    # start the grouped mag list
+            prev_mag = curr_mag  # save the first magnitude for later comparison as previous magnitude
+
+        elif prev_mag == curr_mag:  # as long as the previous and current magnitude are the same
+            end_ms = timestamps[i]     # set the end of the "current" shot to the timestamp of the current magnitude
+
+        else:   # if the magnitudes deviate add a new entry
+            shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries
+            start_ms = end_ms   # set the start timestamp of the next shot as the end of the current shot
+            end_ms = timestamps[i]  # set the end of the "current" shot to the timestamp of the current magnitude
+
+            grouped_mags.append(curr_mag)  # add the next value to the grouped mag list
+            prev_mag = curr_mag  # save the first magnitude for later comparison as previous mag
+
+    shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries for the last shot
+
     return grouped_mags, shot_timestamps
 
 
@@ -130,13 +142,8 @@ def main(videos_path, features_path, frame_width):
             if not os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
                 print('optical flow is calculated for {}'.format(os.path.split(v_path)[1]))
                 # os.makedirs(os.path.join(f_path, 'optical_flow'))
-                digitized_mags = get_optical_flow(v_path, frame_width)
-                # print(np.shape(digitized_mags))
-                # print(summed_mags)
-                grouped_mags, shot_timestamps = group_movie_magnitudes(digitized_mags)
-                # print(np.shape(grouped_mags))
-                # print(np.shape(shot_timestamps))
-                # print(shot_timestamps)
+                digitized_mags, timestamps = get_optical_flow(v_path, frame_width)
+                grouped_mags, shot_timestamps = group_movie_magnitudes(digitized_mags, timestamps)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
                 open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
                 done += 1
