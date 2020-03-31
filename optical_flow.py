@@ -8,15 +8,18 @@ import shutil
 
 STEP_SIZE = 300     # the steps in ms that are taken in a shot
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
+ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 
 def get_optical_flow(v_path, frame_width):
 
     vid = cv2.VideoCapture(v_path)
+    # zzz = []
     summed_mags = []
+    timestamps = []
+    angles_list = []
     timestamp_frames = 0
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
-    timestamps = []
     # iterate through all shots in a movie
     while vid.isOpened():
         # Capture frame-by-frame
@@ -60,20 +63,52 @@ def get_optical_flow(v_path, frame_width):
             # mag and ang are matrices with the shape of the frame
             mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
 
+            # digitize the angles found in
+            ang = ang * 180 / np.pi
+            angles_newshape = np.shape(ang)[0]*np.shape(ang)[1]
+            ang = np.reshape(ang, newshape=angles_newshape)
+            indices_digitized_angles = np.digitize(ang, ANGLE_BINS, right=True)
+            digitized_angles = [ANGLE_BINS[i] for i in indices_digitized_angles]
+
+            # create an empty histogram
+            angles_histogram = {b:[0, 0] for b in ANGLE_BINS}
+            # flatten the magnitudes to the same shape as the digitized_angles
+            flattened_mag = np.reshape(mag, newshape=np.shape(mag)[0]*np.shape(mag)[1])
+            for i, angle in enumerate(digitized_angles):
+                for b in ANGLE_BINS:
+                    if b == angle:
+                        angles_histogram[b][0] += 1
+                        angles_histogram[b][1] += flattened_mag[i]
+
+            # zz = 0
+            # for pp in digitized_angles:
+            #     if pp == 360 or pp == 315:
+            #         zz+=1
+
+            angles_list.append(angles_histogram)
+            # zzz.append(zz)
+
             # sum up all the magnitudes between neighboring frames in the shot creating a single value
-            # scale the value by the number of pixels in the image to keep the value between 0 and 1
-            summed_mags.append(np.sum(mag) / (np.shape(mag)[0] * np.shape(mag)[1]))
+            summed_mags.append(np.sum(mag))
             timestamps.append(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000))
 
-            prev_frame = curr_frame     # save the current as the new previous frame for the next iteration
+            prev_frame = curr_frame     # save the current frame as the new previous frame for the next iteration
         timestamp_frames += step_size_in_frames
 
     vid.release()
     cv2.destroyAllWindows()
 
+    # print('summed mags', summed_mags[0])
+    # print('new counts', angles_list[0])
+
     # scale to a max-value of 1, if the max value is 0 scaling is skipped to avoid nans
     if np.max(summed_mags) != 0:
         scaled_mags = summed_mags/np.max(summed_mags)
+
+        # scale the magnitudes that are corresponding to the angles
+        for i, al in enumerate(angles_list):
+            for key_angles in al:
+                angles_list[i][key_angles][1] / np.max(summed_mags)
     else:
         scaled_mags = summed_mags
 
@@ -81,23 +116,32 @@ def get_optical_flow(v_path, frame_width):
     indices_digitized_mags = np.digitize(scaled_mags, BINS, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     digitized_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
-    return digitized_mags, timestamps
+    return digitized_mags, angles_list, timestamps
 
 
-def group_movie_magnitudes(digitized_mags, timestamps):
+def group_movie_magnitudes(digitized_mags, angles_list, timestamps):
+    # print(angles_list[0])
+    # print(aaa)
     grouped_mags = []
+    grouped_angles = []
     shot_timestamps = []
     prev_mag = 0
     start_ms = 0
     end_ms = 0
+    j = 0
     # iterate through the magnitudes,
     for i, curr_mag in enumerate(digitized_mags):
         if i == 0:
             grouped_mags.append(curr_mag)    # start the grouped mag list
             prev_mag = curr_mag  # save the first magnitude for later comparison as previous magnitude
+            grouped_angles.append(angles_list[i])
 
         elif prev_mag == curr_mag:  # as long as the previous and current magnitude are the same
             end_ms = timestamps[i]     # set the end of the "current" shot to the timestamp of the current magnitude
+            aux = grouped_angles[j]
+            for key in aux:
+                grouped_angles[key][0] = angles_list[i][key][0]
+                grouped_angles[key][1] = angles_list[i][key][1]
 
         else:   # if the magnitudes deviate add a new entry
             shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries
@@ -107,9 +151,12 @@ def group_movie_magnitudes(digitized_mags, timestamps):
             grouped_mags.append(curr_mag)  # add the next value to the grouped mag list
             prev_mag = curr_mag  # save the first magnitude for later comparison as previous mag
 
+            grouped_angles.append(angles_list[i])
+            j += 1
+
     shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries for the last shot
 
-    return grouped_mags, shot_timestamps
+    return grouped_mags, grouped_angles, shot_timestamps
 
 
 def write_mag_to_csv(f_path, grouped_mags, shot_timestamps):
@@ -141,9 +188,12 @@ def main(videos_path, features_path, frame_width):
 
             if not os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
                 print('optical flow is calculated for {}'.format(os.path.split(v_path)[1]))
-                # os.makedirs(os.path.join(f_path, 'optical_flow'))
-                digitized_mags, timestamps = get_optical_flow(v_path, frame_width)
-                grouped_mags, shot_timestamps = group_movie_magnitudes(digitized_mags, timestamps)
+                os.makedirs(os.path.join(f_path, 'optical_flow'))
+                digitized_mags, angles_list, timestamps = get_optical_flow(v_path, frame_width)
+                grouped_mags, grouped_angles,shot_timestamps = group_movie_magnitudes(digitized_mags, angles_list, timestamps)
+                print(np.shape(grouped_angles))
+                print(np.shape(grouped_mags))
+                print(naa)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
                 open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
                 done += 1
