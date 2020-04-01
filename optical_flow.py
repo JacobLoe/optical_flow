@@ -7,7 +7,7 @@ from tqdm import tqdm
 import shutil
 
 STEP_SIZE = 300     # the steps in ms that are taken in a shot
-BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
+BINS = [0.0, .2, 0.4, 0.6, 0.8, 1]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 
@@ -17,7 +17,7 @@ def get_optical_flow(v_path, frame_width):
     # zzz = []
     summed_mags = []
     timestamps = []
-    angles_list = []
+    angles_histogram_list = []
     timestamp_frames = 0
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
     # iterate through all shots in a movie
@@ -85,7 +85,7 @@ def get_optical_flow(v_path, frame_width):
             #     if pp == 360 or pp == 315:
             #         zz+=1
 
-            angles_list.append(angles_histogram)
+            angles_histogram_list.append(angles_histogram)
             # zzz.append(zz)
 
             # sum up all the magnitudes between neighboring frames in the shot creating a single value
@@ -102,13 +102,14 @@ def get_optical_flow(v_path, frame_width):
     # print('new counts', angles_list[0])
 
     # scale to a max-value of 1, if the max value is 0 scaling is skipped to avoid nans
+    print('max', np.max(summed_mags))
     if np.max(summed_mags) != 0:
         scaled_mags = summed_mags/np.max(summed_mags)
 
         # scale the magnitudes that are corresponding to the angles
-        for i, al in enumerate(angles_list):
+        for i, al in enumerate(angles_histogram_list):
             for key_angles in al:
-                angles_list[i][key_angles][1] / np.max(summed_mags)
+                angles_histogram_list[i][key_angles][1] / np.max(summed_mags)
     else:
         scaled_mags = summed_mags
 
@@ -116,12 +117,10 @@ def get_optical_flow(v_path, frame_width):
     indices_digitized_mags = np.digitize(scaled_mags, BINS, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     digitized_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
-    return digitized_mags, angles_list, timestamps
+    return digitized_mags, angles_histogram_list, timestamps
 
 
-def group_movie_magnitudes(digitized_mags, angles_list, timestamps):
-    # print(angles_list[0])
-    # print(aaa)
+def group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamps):
     grouped_mags = []
     grouped_angles = []
     shot_timestamps = []
@@ -134,14 +133,15 @@ def group_movie_magnitudes(digitized_mags, angles_list, timestamps):
         if i == 0:
             grouped_mags.append(curr_mag)    # start the grouped mag list
             prev_mag = curr_mag  # save the first magnitude for later comparison as previous magnitude
-            grouped_angles.append(angles_list[i])
+            grouped_angles.append(angles_histogram_list[i])   # save the first the first histogram
 
         elif prev_mag == curr_mag:  # as long as the previous and current magnitude are the same
             end_ms = timestamps[i]     # set the end of the "current" shot to the timestamp of the current magnitude
-            aux = grouped_angles[j]
-            for key in aux:
-                grouped_angles[key][0] = angles_list[i][key][0]
-                grouped_angles[key][1] = angles_list[i][key][1]
+
+            # sum up all the histograms (of the angles) and the magnitudes for each angle
+            for key in grouped_angles[j]:
+                grouped_angles[j][key][0] += angles_histogram_list[i][key][0]
+                grouped_angles[j][key][1] += angles_histogram_list[i][key][1]
 
         else:   # if the magnitudes deviate add a new entry
             shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries
@@ -151,7 +151,7 @@ def group_movie_magnitudes(digitized_mags, angles_list, timestamps):
             grouped_mags.append(curr_mag)  # add the next value to the grouped mag list
             prev_mag = curr_mag  # save the first magnitude for later comparison as previous mag
 
-            grouped_angles.append(angles_list[i])
+            grouped_angles.append(angles_histogram_list[i])
             j += 1
 
     shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries for the last shot
@@ -172,6 +172,24 @@ def write_mag_to_csv(f_path, grouped_mags, shot_timestamps):
             f.write('\n')
 
 
+def find_dominant_movement(grouped_angles):
+    dominant_angle_per_shot = []
+
+    for histogram in grouped_angles:
+        reversed_histogram = {str(v):k for k, v in histogram.items()}   # reverse the histogramm to allow
+        dominant = sorted(histogram.values(), key=lambda l: -l[1])[0]   # sort the histogram by the magnitude (disregard the angle), descending, return the biggest value
+        dominant_angle_per_shot.append(reversed_histogram[str(dominant)])   #
+
+    return dominant_angle_per_shot
+
+
+def write_angle_to_csv(f_path, grouped_angles, shot_timestamps):
+    if not os.path.isdir(os.path.join(f_path, 'optical_flow')):
+        os.makedirs(os.path.join(f_path, 'optical_flow'))
+
+    mag_csv_path = os.path.join(f_path, 'optical_flow/angle_optical_flow_{}.csv'.format(os.path.split(f_path)[1]))
+
+
 def main(videos_path, features_path, frame_width):
     list_videos_path = glob.glob(os.path.join(videos_path, '**/*.mp4'), recursive=True)  # get the list of videos in videos_dir
 
@@ -189,10 +207,21 @@ def main(videos_path, features_path, frame_width):
             if not os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
                 print('optical flow is calculated for {}'.format(os.path.split(v_path)[1]))
                 os.makedirs(os.path.join(f_path, 'optical_flow'))
-                digitized_mags, angles_list, timestamps = get_optical_flow(v_path, frame_width)
-                grouped_mags, grouped_angles,shot_timestamps = group_movie_magnitudes(digitized_mags, angles_list, timestamps)
+                print('get angles and magnitudes')
+                digitized_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
+                print('group angles and manitudes into shots')
+                grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamps)
                 print(np.shape(grouped_angles))
-                print(np.shape(grouped_mags))
+                # print(np.shape(grouped_mags))
+                print(grouped_angles[0])
+                print(grouped_mags[0])
+                print(grouped_angles[1])
+                print(grouped_mags[1])
+                print(grouped_angles[2])
+                print(grouped_mags[2])
+                print('find dominant movements')
+                # dominant_angle_per_shot = find_dominant_movement(grouped_angles)
+                # print(np.shape(dominant_angle_per_shot))
                 print(naa)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
                 open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
