@@ -2,9 +2,6 @@ import numpy as np
 import cv2
 
 
-
-
-
 def group_movie_magnitudes(digitized_mags, timestamps):
     grouped_mags = []
     shot_timestamps = []

@@ -5,18 +5,16 @@ import numpy as np
 def get_optical_flow(v_path, frame_width, start_ms, end_ms):
 
     vid = cv2.VideoCapture(v_path)
-    print('fps', vid.get(cv2.CAP_PROP_FPS))
     start_frame = vid.get(cv2.CAP_PROP_FPS)*start_ms/1000
     end_frame = int(vid.get(cv2.CAP_PROP_FPS)*end_ms/1000)
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
     timestamp_frames = 0 + start_frame
-
+    print(start_frame, end_frame, step_size_in_frames, timestamp_frames)
     images_optical_flow = []
 
     # iterate through all shots in a movie
     while timestamp_frames < end_frame:
         # Capture frame-by-frame
-
         vid.set(cv2.CAP_PROP_POS_FRAMES, timestamp_frames)
         ret, curr_frame_BGR = vid.read()  # if ret is false, frame has no content
 
@@ -62,11 +60,13 @@ def get_optical_flow(v_path, frame_width, start_ms, end_ms):
             print(np.shape(hsv))
             print(np.shape(ang))
             hsv[..., 1] = 255
-            hsv[..., 0] = ang * 180 / np.pi
-            hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+            hsv[..., 0] = ang * 180 / np.pi     # angle is hue, red is 0 deg, green 120, blue 240
+            hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)     # magnitude is hue
             rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-            path = 'test_images/' + str(timestamp_frames) + '.jpeg'
-            cv2.imwrite(path, rgb)
+            path_flow = 'test_images/flow_' + str(timestamp_frames) + '.jpeg'
+            path_source = 'test_images/source_' + str(timestamp_frames) + '.jpeg'
+            cv2.imwrite(path_flow, rgb)
+            cv2.imwrite(path_source, curr_frame_BGR)
 
             prev_frame = curr_frame     # save the current as the new previous frame for the next iteration
         timestamp_frames += step_size_in_frames
@@ -79,4 +79,4 @@ if __name__ == "__main__":
     BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]
     frame_width = None
 
-    get_optical_flow(path, frame_width, 0, 10500)
+    get_optical_flow(path, frame_width, 60600, 61200)

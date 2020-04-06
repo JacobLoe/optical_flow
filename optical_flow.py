@@ -6,7 +6,7 @@ import glob
 from tqdm import tqdm
 import shutil
 
-STEP_SIZE = 300     # the steps in ms that are taken in a shot
+STEP_SIZE = 900     # the steps in ms that are taken in a shot
 BINS = [0.0, .2, 0.4, 0.6, 0.8, 1]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
@@ -145,6 +145,13 @@ def group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamp
 
     shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries for the last shot
 
+    aa = [end-begin-STEP_SIZE for begin, end in shot_timestamps]
+    print(shot_timestamps)
+    print('_----------------')
+    print(aa)
+    print(len(shot_timestamps))
+    print(grouped_mags)
+    print(dasfaf)
     return grouped_mags, grouped_angles, shot_timestamps
 
 
@@ -243,7 +250,6 @@ def main(videos_path, features_path, frame_width):
                 # print('angle_meta_info',angle_meta_info)
                 print('write results to csv')
                 write_angle_to_csv(f_path, dominant_angle_per_shot, angle_meta_info, shot_timestamps)
-                print(naa)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
                 open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
                 done += 1

@@ -11,11 +11,11 @@ COPY requirements_optical_flow.txt /root
 RUN pip install --trusted-host pypi.python.org -r /root/requirements_optical_flow.txt
 RUN apt-get update && apt-get install -y vim
 
-COPY optical_flow.py /root
+COPY test.py /root
 
 VOLUME "/video"
 VOLUME "/data"
 
 WORKDIR /root
 
-ENTRYPOINT ["python3", "optical_flow.py"]
+ENTRYPOINT ["python3", "test.py"]
