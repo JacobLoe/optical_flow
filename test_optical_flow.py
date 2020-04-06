@@ -2,10 +2,7 @@ import numpy as np
 import cv2
 
 
-path = '../videos/movies/Ferguson_Charles_Inside_Job.mp4'
-STEP_SIZE = 300
-BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]
-frame_width = None
+
 
 
 def group_movie_magnitudes(digitized_mags, timestamps):
@@ -119,13 +116,20 @@ def get_optical_flow(v_path, frame_width, start_ms, end_ms):
     return digitized_mags, timestamps
 
 
-shot_1, timestamps = get_optical_flow(path, frame_width, 0, 10500)
-print('shot_1', shot_1)
-print('timestamps', timestamps)
-print('len lists', len(shot_1), len(timestamps))
-print('-------------------------')
-grouped_shot_0, shot_timestamps_0 = group_movie_magnitudes(shot_1, timestamps)
-print('grouped_mags', grouped_shot_0)
-print('shot_timestamps', shot_timestamps_0)
-print('len lists', len(grouped_shot_0), len(shot_timestamps_0))
+if __name__ == "__main__":
+
+    path = '../videos/movies/Ferguson_Charles_Inside_Job.mp4'
+    STEP_SIZE = 300
+    BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]
+    frame_width = None
+
+    shot_1, timestamps = get_optical_flow(path, frame_width, 0, 10500)
+    print('shot_1', shot_1)
+    print('timestamps', timestamps)
+    print('len lists', len(shot_1), len(timestamps))
+    print('-------------------------')
+    grouped_shot_0, shot_timestamps_0 = group_movie_magnitudes(shot_1, timestamps)
+    print('grouped_mags', grouped_shot_0)
+    print('shot_timestamps', shot_timestamps_0)
+    print('len lists', len(grouped_shot_0), len(shot_timestamps_0))
 

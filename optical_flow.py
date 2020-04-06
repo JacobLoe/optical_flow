@@ -14,7 +14,6 @@ ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 def get_optical_flow(v_path, frame_width):
 
     vid = cv2.VideoCapture(v_path)
-    # zzz = []
     summed_mags = []
     timestamps = []
     angles_histogram_list = []
@@ -80,13 +79,7 @@ def get_optical_flow(v_path, frame_width):
                         angles_histogram[b][0] += 1
                         angles_histogram[b][1] += flattened_mag[i]
 
-            # zz = 0
-            # for pp in digitized_angles:
-            #     if pp == 360 or pp == 315:
-            #         zz+=1
-
             angles_histogram_list.append(angles_histogram)
-            # zzz.append(zz)
 
             # sum up all the magnitudes between neighboring frames in the shot creating a single value
             summed_mags.append(np.sum(mag))
@@ -98,11 +91,7 @@ def get_optical_flow(v_path, frame_width):
     vid.release()
     cv2.destroyAllWindows()
 
-    # print('summed mags', summed_mags[0])
-    # print('new counts', angles_list[0])
-
     # scale to a max-value of 1, if the max value is 0 scaling is skipped to avoid nans
-    print('max', np.max(summed_mags))
     if np.max(summed_mags) != 0:
         scaled_mags = summed_mags/np.max(summed_mags)
 
@@ -159,6 +148,38 @@ def group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamp
     return grouped_mags, grouped_angles, shot_timestamps
 
 
+def find_dominant_movement(grouped_angles):
+    dominant_angle_per_shot = []
+    meta_info = []
+    for i,histogram in enumerate(grouped_angles):
+        # print(histogram)
+        aux_histogram = {k:v[0]*v[1] for k, v in histogram.items()}     # multiply the magnitude and angle count to get a measure of movement for each angle
+        hist_mean = np.mean(list(aux_histogram.values()))
+        hist_var = np.var(list(aux_histogram.values()))
+        # print(hist_var, hist_mean)
+        aux_histogram = {k:((v-hist_mean)/hist_var if hist_var!=0 else 0) for k,v in aux_histogram.items()}     # normalize the histtogram
+        # print(aux_histogram)
+        # print(np.mean(list(aux_histogram.values())), np.var(list(aux_histogram.values())))
+        # print(np.min(list(aux_histogram.values())),np.max(list(aux_histogram.values())))
+        # if i==1:
+        #     break
+
+        reversed_histogram = {v:k for k, v in aux_histogram.items()}   # reverse the histogramm to allow it to be searched by the value
+        dominant = sorted(aux_histogram.values(), reverse=True)[0]   # sort the histogram by magnittude times angle, descending, return the biggest value
+        dominant_angle_per_shot.append(reversed_histogram[dominant])   # return the angle corresponding to the value
+
+        # add additional information about the shot, whole histogram, min/max/average-values, variance
+        # print(hist_values, type(hist_values))
+        # print('np min max', np.min(hist_values), np.max(hist_values))
+        # print('numpy mean', np.mean(hist_values))
+        # print('numpy variance', np.var(hist_values, dtype='float64'))
+        # print(asdada)
+        info = [np.min(list(aux_histogram.values())), np.max(list(aux_histogram.values())),
+                np.mean(list(aux_histogram.values())), np.var(list(aux_histogram.values()))]
+        meta_info.append(info)
+    return dominant_angle_per_shot, meta_info
+
+
 def write_mag_to_csv(f_path, grouped_mags, shot_timestamps):
     if not os.path.isdir(os.path.join(f_path, 'optical_flow')):
         os.makedirs(os.path.join(f_path, 'optical_flow'))
@@ -172,22 +193,18 @@ def write_mag_to_csv(f_path, grouped_mags, shot_timestamps):
             f.write('\n')
 
 
-def find_dominant_movement(grouped_angles):
-    dominant_angle_per_shot = []
-
-    for histogram in grouped_angles:
-        reversed_histogram = {str(v):k for k, v in histogram.items()}   # reverse the histogramm to allow
-        dominant = sorted(histogram.values(), key=lambda l: -l[1])[0]   # sort the histogram by the magnitude (disregard the angle), descending, return the biggest value
-        dominant_angle_per_shot.append(reversed_histogram[str(dominant)])   #
-
-    return dominant_angle_per_shot
-
-
-def write_angle_to_csv(f_path, grouped_angles, shot_timestamps):
+def write_angle_to_csv(f_path, dominant_angle_per_shot, angle_meta_info,shot_timestamps):
     if not os.path.isdir(os.path.join(f_path, 'optical_flow')):
         os.makedirs(os.path.join(f_path, 'optical_flow'))
 
     mag_csv_path = os.path.join(f_path, 'optical_flow/angle_optical_flow_{}.csv'.format(os.path.split(f_path)[1]))
+
+    with open(mag_csv_path, 'w', newline='') as f:
+        for i, angle in enumerate(dominant_angle_per_shot):
+            ami = str(angle_meta_info[i]).replace(' ', '')
+            line = str(shot_timestamps[i][0])+' '+str(shot_timestamps[i][1])+' '+str(angle)+' '+ami
+            f.write(line)
+            f.write('\n')
 
 
 def main(videos_path, features_path, frame_width):
@@ -211,17 +228,21 @@ def main(videos_path, features_path, frame_width):
                 digitized_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
                 print('group angles and manitudes into shots')
                 grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamps)
-                print(np.shape(grouped_angles))
+                # print(np.shape(grouped_angles))
                 # print(np.shape(grouped_mags))
-                print(grouped_angles[0])
-                print(grouped_mags[0])
-                print(grouped_angles[1])
-                print(grouped_mags[1])
-                print(grouped_angles[2])
-                print(grouped_mags[2])
+                # print(grouped_angles[0])
+                # print(grouped_mags[0])
+                # print(grouped_angles[1])
+                # print(grouped_mags[1])
+                # print(grouped_angles[2])
+                # print(grouped_mags[2])
                 print('find dominant movements')
-                # dominant_angle_per_shot = find_dominant_movement(grouped_angles)
-                # print(np.shape(dominant_angle_per_shot))
+                dominant_angle_per_shot, angle_meta_info = find_dominant_movement(grouped_angles)
+                # print('shapes', np.shape(dominant_angle_per_shot), np.shape(angle_meta_info))
+                # print('dominant_angle_per_shot', dominant_angle_per_shot)
+                # print('angle_meta_info',angle_meta_info)
+                print('write results to csv')
+                write_angle_to_csv(f_path, dominant_angle_per_shot, angle_meta_info, shot_timestamps)
                 print(naa)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
                 open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
