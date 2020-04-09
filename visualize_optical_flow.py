@@ -1,16 +1,21 @@
 import cv2
 import numpy as np
+import argparse
+import os
+
+STEP_SIZE = 300
 
 
-def get_optical_flow(v_path, frame_width, start_ms, end_ms):
+def get_optical_flow(v_path, images_path, start_ms, end_ms):
+
+    if not os.path.isdir(images_path):
+        os.makedirs(images_path)
 
     vid = cv2.VideoCapture(v_path)
     start_frame = vid.get(cv2.CAP_PROP_FPS)*start_ms/1000
     end_frame = int(vid.get(cv2.CAP_PROP_FPS)*end_ms/1000)
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
     timestamp_frames = 0 + start_frame
-    print(start_frame, end_frame, step_size_in_frames, timestamp_frames)
-    images_optical_flow = []
 
     # iterate through all shots in a movie
     while timestamp_frames < end_frame:
@@ -23,23 +28,11 @@ def get_optical_flow(v_path, frame_width, start_ms, end_ms):
 
         if timestamp_frames == 0 + start_frame:
 
-            if frame_width:
-                resolution_old = np.shape(curr_frame_BGR)
-                ratio = resolution_old[1]/resolution_old[0]
-                frame_height = int(frame_width/ratio)
-                resolution_new = (frame_width, frame_height)
-                curr_frame_BGR = cv2.resize(curr_frame, resolution_new)
             curr_frame = cv2.cvtColor(curr_frame_BGR, cv2.COLOR_BGR2GRAY)
             prev_frame = curr_frame
 
         else:
 
-            if frame_width:
-                resolution_old = np.shape(curr_frame_BGR)
-                ratio = resolution_old[1]/resolution_old[0]
-                frame_height = int(frame_width/ratio)
-                resolution_new = (frame_width, frame_height)
-                curr_frame_BGR = cv2.resize(curr_frame, resolution_new)
             curr_frame = cv2.cvtColor(curr_frame_BGR, cv2.COLOR_BGR2GRAY)
 
             # create the optical flow for two neighbouring frames
@@ -57,14 +50,13 @@ def get_optical_flow(v_path, frame_width, start_ms, end_ms):
 
             # create images to visualize the optical flow
             hsv = np.zeros_like(curr_frame_BGR)
-            print(np.shape(hsv))
-            print(np.shape(ang))
             hsv[..., 1] = 255
             hsv[..., 0] = ang * 180 / np.pi     # angle is hue, red is 0 deg, green 120, blue 240
-            hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)     # magnitude is hue
+            hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)     # magnitude is value
             rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-            path_flow = 'test_images/flow_' + str(timestamp_frames) + '.jpeg'
-            path_source = 'test_images/source_' + str(timestamp_frames) + '.jpeg'
+
+            path_flow = os.path.join(images_path, 'flow_' + str(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000)) + '.jpeg')
+            path_source = os.path.join(images_path, 'source_' + str(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000)) + '.jpeg')
             cv2.imwrite(path_flow, rgb)
             cv2.imwrite(path_source, curr_frame_BGR)
 
@@ -74,9 +66,13 @@ def get_optical_flow(v_path, frame_width, start_ms, end_ms):
 
 if __name__ == "__main__":
 
-    path = '../videos/movies/Ferguson_Charles_Inside_Job.mp4'
-    STEP_SIZE = 300
-    BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]
-    frame_width = None
+    parser = argparse.ArgumentParser()
+    parser.add_argument("video_dir", help="the directory where the video-files are stored")
+    parser.add_argument("images_path", help="the directory where the images are saved")
+    parser.add_argument("shot_begin", type=int, help="the begin of a shot in milliseconds")
+    parser.add_argument("shot_end", type=int, help="the end of a shot in milliseconds")
+    args = parser.parse_args()
 
-    get_optical_flow(path, frame_width, 60600, 61200)
+    path = '../videos/movies/Ferguson_Charles_Inside_Job.mp4'
+#60600, 61200
+    get_optical_flow(args.video_dir, args.images_path, args.shot_begin, args.shot_end)

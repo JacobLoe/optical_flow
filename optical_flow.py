@@ -6,8 +6,8 @@ import glob
 from tqdm import tqdm
 import shutil
 
-STEP_SIZE = 900     # the steps in ms that are taken in a shot
-BINS = [0.0, .2, 0.4, 0.6, 0.8, 1]     #
+STEP_SIZE = 300     # the steps in ms that are taken in a shot
+BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 
@@ -91,16 +91,24 @@ def get_optical_flow(v_path, frame_width):
     vid.release()
     cv2.destroyAllWindows()
 
+    # aux = list(summed_mags)
+    # for i in range(3):
+    #     max_mag = np.max(aux)
+    #     aux.remove(max_mag)
+
     # scale to a max-value of 1, if the max value is 0 scaling is skipped to avoid nans
-    if np.max(summed_mags) != 0:
-        scaled_mags = summed_mags/np.max(summed_mags)
+    max_summed_mags = np.max(summed_mags)
+    if max_summed_mags != 0:
+        scaled_mags = summed_mags/max_summed_mags
 
         # scale the magnitudes that are corresponding to the angles
         for i, al in enumerate(angles_histogram_list):
             for key_angles in al:
-                angles_histogram_list[i][key_angles][1] / np.max(summed_mags)
+                angles_histogram_list[i][key_angles][1] / max_summed_mags
     else:
         scaled_mags = summed_mags
+
+    # FIXME clip values greater 1
 
     # FIXME if changed to right=False, indices start at 1 instead of 0
     indices_digitized_mags = np.digitize(scaled_mags, BINS, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
@@ -110,6 +118,7 @@ def get_optical_flow(v_path, frame_width):
 
 
 def group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamps):
+    print(len(digitized_mags))
     grouped_mags = []
     grouped_angles = []
     shot_timestamps = []
@@ -145,20 +154,22 @@ def group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamp
 
     shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries for the last shot
 
-    aa = [end-begin-STEP_SIZE for begin, end in shot_timestamps]
-    print(shot_timestamps)
-    print('_----------------')
-    print(aa)
-    print(len(shot_timestamps))
-    print(grouped_mags)
-    print(dasfaf)
+    # aa = [end-begin-STEP_SIZE for begin, end in shot_timestamps]
+    # print(shot_timestamps)
+    # print('_----------------')
+    # print(aa)
+    # print(len(shot_timestamps))
+    # print(grouped_mags)
+    # print(dasfaf)
+
+    print(len(grouped_mags))
     return grouped_mags, grouped_angles, shot_timestamps
 
 
 def find_dominant_movement(grouped_angles):
     dominant_angle_per_shot = []
     meta_info = []
-    for i,histogram in enumerate(grouped_angles):
+    for i, histogram in enumerate(grouped_angles):
         # print(histogram)
         aux_histogram = {k:v[0]*v[1] for k, v in histogram.items()}     # multiply the magnitude and angle count to get a measure of movement for each angle
         hist_mean = np.mean(list(aux_histogram.values()))
@@ -231,26 +242,21 @@ def main(videos_path, features_path, frame_width):
             if not os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
                 print('optical flow is calculated for {}'.format(os.path.split(v_path)[1]))
                 os.makedirs(os.path.join(f_path, 'optical_flow'))
+
                 print('get angles and magnitudes')
                 digitized_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
+
                 print('group angles and manitudes into shots')
                 grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, angles_histogram_list, timestamps)
-                # print(np.shape(grouped_angles))
-                # print(np.shape(grouped_mags))
-                # print(grouped_angles[0])
-                # print(grouped_mags[0])
-                # print(grouped_angles[1])
-                # print(grouped_mags[1])
-                # print(grouped_angles[2])
-                # print(grouped_mags[2])
+
                 print('find dominant movements')
                 dominant_angle_per_shot, angle_meta_info = find_dominant_movement(grouped_angles)
-                # print('shapes', np.shape(dominant_angle_per_shot), np.shape(angle_meta_info))
-                # print('dominant_angle_per_shot', dominant_angle_per_shot)
-                # print('angle_meta_info',angle_meta_info)
+
                 print('write results to csv')
                 write_angle_to_csv(f_path, dominant_angle_per_shot, angle_meta_info, shot_timestamps)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
+
+                print(adadasd)
                 open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
                 done += 1
             elif os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):    # do nothing if a .done-file exists
@@ -267,8 +273,6 @@ if __name__ == "__main__":
     parser.add_argument("videos_dir", help="the directory where the video-files are stored")
     parser.add_argument("features_dir", help="the directory where the images are to be stored")
     parser.add_argument("--frame_width", type=int, default=129, help="set the width at which to which the frames are rescaled, default 129")
-    # parser.add_argument('--ang_bins', type=list, default=[0, 45, 90, 135, 180, 225, 270, 315, 360], help='set the angle bins for the histogram, takes a list as input')
-    # parser.add_argument('--mag_bins', type=list, default=[0, 20, 40, 60, 80, 100], help='set the magnitude bins for the histogram, takes a list as input')
     args = parser.parse_args()
 
     main(args.videos_dir, args.features_dir, args.frame_width)
