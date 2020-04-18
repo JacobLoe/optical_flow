@@ -96,25 +96,27 @@ def get_optical_flow(v_path, frame_width):
     # indices_digitized_mags = np.digitize(summed_mags, magnitude_bins, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     # summed_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
+    print(timestamps[:5])
     return summed_mags, magnitude_bins,  angles_histogram_list, timestamps
 
 
 def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
-    grouped_mags = []
-    grouped_angles = []
+    grouped_mags = [summed_mags[0]]  # start the grouped mag list
+    grouped_angles = [angles_histogram_list[0]]  # save the first the first histogram
     shot_timestamps = []
-    prev_mag = 0
+    prev_mag = summed_mags[0]  # save the first magnitude for later comparison as previous magnitude
     start_ms = 0
-    end_ms = 0
+    end_ms = timestamps[0]  # set the end timestamp
     j = 0
     # iterate through the magnitudes,
-    for i, curr_mag in enumerate(summed_mags):
-        if i == 0:
-            grouped_mags.append(curr_mag)    # start the grouped mag list
-            prev_mag = curr_mag  # save the first magnitude for later comparison as previous magnitude
-            grouped_angles.append(angles_histogram_list[i])   # save the first the first histogram
+    for i, curr_mag in enumerate(summed_mags[1:]):
+        # if i == 0:
+        #     grouped_mags.append(curr_mag)
+        #     prev_mag = curr_mag
+        #     grouped_angles.append(angles_histogram_list[i])
+        #     end_ms = timestamps[i]
 
-        elif prev_mag == curr_mag:  # as long as the previous and current magnitude are the same
+        if prev_mag == curr_mag:  # as long as the previous and current magnitude are the same
             end_ms = timestamps[i]     # set the end of the "current" shot to the timestamp of the current magnitude
 
             # sum up all the histograms (of the angles) and the magnitudes for each angle
@@ -139,13 +141,15 @@ def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
 
 
 def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timestamps):
-
     magnitude_and_shot_timestamps = dict(zip(grouped_mags, shot_timestamps))
 
     # go through the bins in reverse
     # for each magnitude see if
+    # print([end-begin for begin, end in shot_timestamps])
+    # print(asdas)
     reversed_magnitude_bins = list(reversed(magnitude_bins))
     nmm = False
+    new_max_magnitude = max(grouped_mags)   # if no new max magnitude is found use the real max magnitude of the movie
     for i, b in enumerate(reversed_magnitude_bins):
         if i == 0:
             for j, m in enumerate(grouped_mags):
@@ -157,8 +161,6 @@ def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timest
                     new_max_magnitude = m
                     nmm = True
                     break
-                # elif m < b:
-                #     b_prev = b
         else:
             # for each shot
             for j, m in enumerate(grouped_mags):
@@ -196,7 +198,7 @@ def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timest
     indices_digitized_mags = np.digitize(clipped_mags, BINS, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     digitized_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
-    timestamps = [begin for begin, end in shot_timestamps]
+    timestamps = [end for begin, end in shot_timestamps]
 
     return digitized_mags, grouped_angles, timestamps
 
@@ -280,16 +282,27 @@ def main(videos_path, features_path, frame_width):
 
                 print('get angles and magnitudes')
                 summed_mags, magnitude_bins, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
-                print('summed mags', np.shape(summed_mags))
+                print('summed mags, angles, timestamps: ', np.shape(summed_mags), np.shape(angles_histogram_list), np.shape(timestamps))
+
                 print('group angles and manitudes into shots')
                 grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps)
-                print(np.shape(grouped_mags))
+                print('mags, angles, timestamps: ', np.shape(grouped_mags), np.shape(grouped_angles), np.shape(shot_timestamps))
+
                 print('find max magnitude')
                 digitized_mags, new_grouped_angles, new_timestamps = find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timestamps)
-                print(np.shape(digitized_mags))
+
                 print('group angles and manitudes into shots with scaled mags')
-                grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, grouped_angles, new_timestamps)
-                print(np.shape(grouped_mags))
+                grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, new_grouped_angles, new_timestamps)
+
+                # print('mean, variance: ', np.mean(grouped_mags), np.var(grouped_mags))
+                # h, b = np.histogram(grouped_mags, bins=[0, 0.2, 0.4, 0.6, 0.8, 1, 1.2])
+                # print('histogram: ', h)
+                # print('bins: ', b)
+                # import matplotlib.pyplot as plt
+                # plt.hist(grouped_mags, bins=b)
+                # plt.title("histogram")
+                # plt.savefig('histograms/{}_mag_histogram.jpeg'.format(os.path.split(v_path)[1]),)
+                # plt.show()
 
                 print('find dominant movements')
                 dominant_angle_per_shot, angle_meta_info = find_dominant_movement(grouped_angles)
@@ -297,7 +310,6 @@ def main(videos_path, features_path, frame_width):
                 print('write results to csv')
                 write_angle_to_csv(f_path, dominant_angle_per_shot, angle_meta_info, shot_timestamps)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
-
                 open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
                 done += 1
             elif os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):    # do nothing if a .done-file exists
@@ -317,4 +329,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args.videos_dir, args.features_dir, args.frame_width)
-
