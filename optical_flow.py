@@ -6,9 +6,10 @@ import glob
 from tqdm import tqdm
 import shutil
 
-STEP_SIZE = 300     # the steps in ms that are taken in a shot
+STEP_SIZE = 2000     # the steps in ms that are taken in a shot
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
+VERSION = '20200428'      # the version of the script
 
 
 def get_optical_flow(v_path, frame_width):
@@ -96,7 +97,7 @@ def get_optical_flow(v_path, frame_width):
     # indices_digitized_mags = np.digitize(summed_mags, magnitude_bins, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     # summed_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
-    print(timestamps[:5])
+    # print('summed_magnitudes', summed_mags[:104])
     return summed_mags, magnitude_bins,  angles_histogram_list, timestamps
 
 
@@ -110,12 +111,6 @@ def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
     j = 0
     # iterate through the magnitudes,
     for i, curr_mag in enumerate(summed_mags[1:]):
-        # if i == 0:
-        #     grouped_mags.append(curr_mag)
-        #     prev_mag = curr_mag
-        #     grouped_angles.append(angles_histogram_list[i])
-        #     end_ms = timestamps[i]
-
         if prev_mag == curr_mag:  # as long as the previous and current magnitude are the same
             end_ms = timestamps[i]     # set the end of the "current" shot to the timestamp of the current magnitude
 
@@ -141,50 +136,41 @@ def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
 
 
 def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timestamps):
-    magnitude_and_shot_timestamps = dict(zip(grouped_mags, shot_timestamps))
 
     # go through the bins in reverse
     # for each magnitude see if
-    # print([end-begin for begin, end in shot_timestamps])
-    # print(asdas)
     reversed_magnitude_bins = list(reversed(magnitude_bins))
     nmm = False
-    new_max_magnitude = max(grouped_mags)   # if no new max magnitude is found use the real max magnitude of the movie
+    new_max_magnitude = 0
     for i, b in enumerate(reversed_magnitude_bins):
         if i == 0:
             for j, m in enumerate(grouped_mags):
                 # if a shot that falls into the bin >=b is longer than the STEP_SIZE stop the search
                 # and take the magnitude of this shot as the new max magnitude for scaling
                 if m >= b and shot_timestamps[j][1]-shot_timestamps[j][0] > STEP_SIZE:
-                    # print('b, m: ', b, m)
-                    # print(m >= b)
                     new_max_magnitude = m
                     nmm = True
                     break
         else:
             # for each shot
             for j, m in enumerate(grouped_mags):
-                # if shot_timestamps[j][1]-shot_timestamps[j][0] > STEP_SIZE:
-                #     print(shot_timestamps[j])
-                #     print('b, m, b_prev: ', b, m, reversed_magnitude_bins[i-1])
                 # check if m is higher/equal than the current bin and lower than the previous
                 if b <= m < reversed_magnitude_bins[i-1] and shot_timestamps[j][1]-shot_timestamps[j][0] > STEP_SIZE:
-                    # print('b, m, b_prev: ', b, m, list(reversed(magnitude_bins))[i-1])
-                    # print(m >= b)
                     new_max_magnitude = m
                     nmm = True
                     break
-                # elif m < b or m > b_prev:
-                #     b_prev = b
         if nmm:
             break
 
-    # print('new_max_magnitude', new_max_magnitude)
-    # print('ts: ', magnitude_and_shot_timestamps[new_max_magnitude])
-    # print('max', np.max(grouped_mags))
+    # scale the magnitudes using the new found "maximum" magnitude
+    # if no magnitude was found (no shot is longer than the STEP_SIZE), take the maximum magnitude of the movie as the factor
+    if new_max_magnitude == 0:
+        new_max_magnitude = np.max(grouped_mags)
+        scaled_mags = grouped_mags / new_max_magnitude
+        print('no new maximum magnitude could be found, ')
+    else:
+        scaled_mags = grouped_mags / new_max_magnitude
 
-    # scale
-    scaled_mags = grouped_mags / new_max_magnitude
     # scale the magnitudes that are corresponding to the angles
     for i, al in enumerate(grouped_angles):
         for key_angles in al:
@@ -194,7 +180,6 @@ def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timest
     # clip values greater than 1 to 1
     clipped_mags = np.clip(scaled_mags, 0, 1)
 
-    #
     indices_digitized_mags = np.digitize(clipped_mags, BINS, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     digitized_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
@@ -276,17 +261,21 @@ def main(videos_path, features_path, frame_width):
     while done < len(list_videos_path):
         for v_path, f_path in tqdm(zip(list_videos_path, list_features_path), total=len(list_videos_path)):
 
-            if not os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
-                print('optical flow is calculated for {}'.format(os.path.split(v_path)[1]))
-                os.makedirs(os.path.join(f_path, 'optical_flow'))
+            of_path = os.path.join(f_path, 'optical_flow')
+            done_file_path = os.path.join(of_path, '.done')
+            video_name = os.path.split(v_path)[1]
+
+            if not os.path.isdir(of_path):
+                print('optical flow is calculated for {}'.format(video_name))
+                os.makedirs(of_path)
 
                 print('get angles and magnitudes')
                 summed_mags, magnitude_bins, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
-                print('summed mags, angles, timestamps: ', np.shape(summed_mags), np.shape(angles_histogram_list), np.shape(timestamps))
+                # print('summed mags, angles, timestamps: ', np.shape(summed_mags), np.shape(angles_histogram_list), np.shape(timestamps))
 
                 print('group angles and manitudes into shots')
                 grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps)
-                print('mags, angles, timestamps: ', np.shape(grouped_mags), np.shape(grouped_angles), np.shape(shot_timestamps))
+                # print('mags, angles, timestamps: ', np.shape(grouped_mags), np.shape(grouped_angles), np.shape(shot_timestamps))
 
                 print('find max magnitude')
                 digitized_mags, new_grouped_angles, new_timestamps = find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timestamps)
@@ -310,14 +299,23 @@ def main(videos_path, features_path, frame_width):
                 print('write results to csv')
                 write_angle_to_csv(f_path, dominant_angle_per_shot, angle_meta_info, shot_timestamps)
                 write_mag_to_csv(f_path, grouped_mags, shot_timestamps)
-                open(os.path.join(f_path, 'optical_flow/.done'), 'a').close()
-                done += 1
-            elif os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):    # do nothing if a .done-file exists
-                done += 1
-                print('optical flow was already done for {}'.format(os.path.split(v_path)[1]))
-            elif os.path.isdir(os.path.join(f_path, 'optical_flow')) and not os.path.isfile(os.path.join(f_path, 'optical_flow/.done')):
-                shutil.rmtree(os.path.join(f_path, 'optical_flow'))
-                print('optical flow was not done correctly for {}'.format(os.path.split(v_path)[1]))
+
+                # create a hidden file to signal that the optical flow for a movie is done
+                # write the current version of the script in the file
+                with open(done_file_path, 'a') as d:
+                    d.write(VERSION)
+                done += 1  # count the instances of the optical flow done correctly
+            # do nothing if a .done-file exists and the versions in the file and the script match
+            elif os.path.isfile(done_file_path) and open(done_file_path, 'r').read() == VERSION:
+                done += 1  # count the instances of the optical flow done correctly
+                print('optical flow was already done for {}'.format(video_name))
+            # if the folder already exists but the .done-file doesn't, delete the folder
+            elif os.path.isfile(done_file_path) and not open(done_file_path, 'r').read() == VERSION:
+                shutil.rmtree(of_path)
+                print('versions did not match for {}'.format(video_name))
+            elif not os.path.isfile(done_file_path):
+                shutil.rmtree(of_path)
+                print('optical flow was not done correctly for {}'.format(video_name))
 
 
 if __name__ == "__main__":

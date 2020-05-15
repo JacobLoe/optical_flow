@@ -15,7 +15,7 @@ def get_optical_flow(v_path, images_path, start_ms, end_ms):
     start_frame = vid.get(cv2.CAP_PROP_FPS)*start_ms/1000
     end_frame = int(vid.get(cv2.CAP_PROP_FPS)*end_ms/1000)
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
-    timestamp_frames = 0 + start_frame
+    timestamp_frames = start_frame
 
     # iterate through all shots in a movie
     while timestamp_frames < end_frame:
@@ -26,10 +26,9 @@ def get_optical_flow(v_path, images_path, start_ms, end_ms):
         if not ret:
             break
 
-        if timestamp_frames == 0 + start_frame:
+        if timestamp_frames == start_frame:
 
-            curr_frame = cv2.cvtColor(curr_frame_BGR, cv2.COLOR_BGR2GRAY)
-            prev_frame = curr_frame
+            prev_frame = cv2.cvtColor(curr_frame_BGR, cv2.COLOR_BGR2GRAY)
 
         else:
 
@@ -74,5 +73,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     path = '../videos/movies/Ferguson_Charles_Inside_Job.mp4'
-#60600, 61200
+
     get_optical_flow(args.video_dir, args.images_path, args.shot_begin, args.shot_end)
