@@ -6,99 +6,154 @@ import glob
 from tqdm import tqdm
 import shutil
 
-STEP_SIZE = 2000     # the steps in ms that are taken in a shot
+STEP_SIZE = 1000     # the steps a video is
+WINDOW_SIZE = 2000  #
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200428'      # the version of the script
+VERSION = '20200516'      # the version of the script
+aggregate = np.mean
+
+
+def resize_frame(frame, frame_width):
+    resolution_old = np.shape(frame)
+    ratio = resolution_old[1] / resolution_old[0]
+    frame_height = int(frame_width / ratio)
+    resolution_new = (frame_width, frame_height)
+    resized_frame = cv2.resize(frame, resolution_new)
+    return resized_frame
+
+
+def read_frame(vid, timestamp, frame_width):
+    vid.set(cv2.CAP_PROP_POS_FRAMES, timestamp)
+    ret, frame = vid.read()  # if ret is false, frame has no content
+
+    if not ret:
+        return ret, 0
+
+    if frame_width:  # reshape the frame according to the given frame width and the aspect ratio od the movie
+        frame = resize_frame(frame, frame_width)
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    return ret, frame
+
+
+def calculate_optical_flow(frame1, frame2):
+    # create the optical flow for two neighbouring frames
+    flow = cv2.calcOpticalFlowFarneback(frame1, frame2,
+                                        flow=None,
+                                        pyr_scale=0.5,
+                                        levels=3,
+                                        winsize=15,
+                                        iterations=3,
+                                        poly_n=5,
+                                        poly_sigma=1.2,
+                                        flags=0)
+    # mag and ang are matrices with the shape of the frame
+    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+
+    # sum up all the magnitudes between neighboring frames in the shot creating a single value
+    summed_mags = np.sum(mag)
+
+    # digitize the angles
+    ang = ang * 180 / np.pi
+    angles_newshape = np.shape(ang)[0] * np.shape(ang)[1]
+    ang = np.reshape(ang, newshape=angles_newshape)
+    indices_digitized_angles = np.digitize(ang, ANGLE_BINS, right=True)
+    digitized_angles = [ANGLE_BINS[i] for i in indices_digitized_angles]
+
+    # create an empty histogram
+    angles_histogram = {b: [0, 0] for b in ANGLE_BINS}
+    # flatten the magnitudes to the same shape as the digitized_angles
+    flattened_mag = np.reshape(mag, newshape=np.shape(mag)[0] * np.shape(mag)[1])
+    for i, angle in enumerate(digitized_angles):
+        for b in ANGLE_BINS:
+            if b == angle:
+                angles_histogram[b][0] += 1
+                angles_histogram[b][1] += flattened_mag[i]
+
+    return summed_mags, angles_histogram
 
 
 def get_optical_flow(v_path, frame_width):
 
     vid = cv2.VideoCapture(v_path)
-    summed_mags = []
-    timestamps = []
+    summed_mags = []    # list of summed up magnitudes
+    timestamps = []         # list of timestamps, corresponding to summed_mags
     angles_histogram_list = []
-    timestamp_frames = 0
-    step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE from ms to frames, dependent on the fps of the movie
-    # iterate through all shots in a movie
+    timestamp_frames = 0    # timestamp iterator, counted in frames
+    step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE and WINDOW_SIZE from ms to frames, dependent on the fps of the movie
+    window_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*WINDOW_SIZE/1000)
+
+    # go through the video and save the optical flow at each timestamp
     while vid.isOpened():
-        # Capture frame-by-frame
-
-        vid.set(cv2.CAP_PROP_POS_FRAMES, timestamp_frames)
-        ret, curr_frame = vid.read()  # if ret is false, frame has no content
-
+        # read the frame at the current timestamp, stop the reading if the video is finished
+        ret, curr_frame = read_frame(vid, timestamp_frames, frame_width)
         if not ret:
             break
+        # read the "future" frame, at the end of the window, stop the reading if the video is finished
+        ret, future_frame = read_frame(vid, timestamp_frames + window_size_in_frames, frame_width)
+        if not ret:
+            break
+        # calculate the optical flow for the current and the future frame, return unchanged magnitudes and a histogram for the angles found between the frames
+        mag, angles_histogram = calculate_optical_flow(curr_frame, future_frame)
 
-        if timestamp_frames == 0:
+        # save the timestamp of the current frame
+        timestamps.append(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000))
+        # save the two optical flow components
+        summed_mags.append(mag)
+        angles_histogram_list.append(angles_histogram)
 
-            if frame_width:
-                resolution_old = np.shape(curr_frame)
-                ratio = resolution_old[1]/resolution_old[0]
-                frame_height = int(frame_width/ratio)
-                resolution_new = (frame_width, frame_height)
-                curr_frame = cv2.resize(curr_frame, resolution_new)
-            curr_frame = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
-            prev_frame = curr_frame
-        else:
-
-            if frame_width:
-                resolution_old = np.shape(curr_frame)
-                ratio = resolution_old[1]/resolution_old[0]
-                frame_height = int(frame_width/ratio)
-                resolution_new = (frame_width, frame_height)
-                curr_frame = cv2.resize(curr_frame, resolution_new)
-            curr_frame = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
-
-            # create the optical flow for two neighbouring frames
-            flow = cv2.calcOpticalFlowFarneback(prev_frame, curr_frame,
-                                                flow=None,
-                                                pyr_scale=0.5,
-                                                levels=3,
-                                                winsize=15,
-                                                iterations=3,
-                                                poly_n=5,
-                                                poly_sigma=1.2,
-                                                flags=0)
-            # mag and ang are matrices with the shape of the frame
-            mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-
-            # digitize the angles found in
-            ang = ang * 180 / np.pi
-            angles_newshape = np.shape(ang)[0]*np.shape(ang)[1]
-            ang = np.reshape(ang, newshape=angles_newshape)
-            indices_digitized_angles = np.digitize(ang, ANGLE_BINS, right=True)
-            digitized_angles = [ANGLE_BINS[i] for i in indices_digitized_angles]
-
-            # create an empty histogram
-            angles_histogram = {b:[0, 0] for b in ANGLE_BINS}
-            # flatten the magnitudes to the same shape as the digitized_angles
-            flattened_mag = np.reshape(mag, newshape=np.shape(mag)[0]*np.shape(mag)[1])
-            for i, angle in enumerate(digitized_angles):
-                for b in ANGLE_BINS:
-                    if b == angle:
-                        angles_histogram[b][0] += 1
-                        angles_histogram[b][1] += flattened_mag[i]
-
-            angles_histogram_list.append(angles_histogram)
-
-            # sum up all the magnitudes between neighboring frames in the shot creating a single value
-            summed_mags.append(np.sum(mag))
-            timestamps.append(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000))
-
-            prev_frame = curr_frame     # save the current frame as the new previous frame for the next iteration
+        # move along the video according to the STEP_SIZE
         timestamp_frames += step_size_in_frames
-
     vid.release()
     cv2.destroyAllWindows()
+    return summed_mags, angles_histogram_list, timestamps
 
-    _, magnitude_bins = np.histogram(summed_mags, bins=10000)
 
-    # indices_digitized_mags = np.digitize(summed_mags, magnitude_bins, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
-    # summed_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
+def aggregate_shots(summed_mags, timestamps):
+    aggregated_shots = []   # list of aggregated magnitudes
+    aggregated_timestamps = []  # list of timestamps, corresponding to aggregated_shots
+    #
+    ratio = WINDOW_SIZE / STEP_SIZE     # determines whether shots are aggregated or not
+    shots_to_aggregate = int(ratio)     # determines how many shots are aggregated together
+    if shots_to_aggregate == 1 and ratio > 1:   # if the ratio is greater than 1 there are shots to be aggregated, but the ratio would be rounded down to 1 in the next step
+        shots_to_aggregate = 2                  # and prevent shot aggregation. To prevent this from happening shots_to_aggregate is set to 2, if
+    # print('ratio window/step: ', ratio)
+    # print('shots_to_aggregate: ', shots_to_aggregate)
+    # check the ratio of WINDOW_SIZE and STEP_SIZE, if its below or equal to 1 there is no overlap between shots and aggregation is not needed
+    if not ratio <= 1:
+        for i in range(len(summed_mags)):
+            # only aggregate shots if there are enough shots left in summed_mags
+            if i+shots_to_aggregate <= len(summed_mags):
+                overlapping_shots = summed_mags[i:i+shots_to_aggregate]
+                # print(overlapping_shots, np.shape(overlapping_shots), i+shots_to_aggregate, len(summed_mags))
+                aggregated_mags = aggregate(overlapping_shots)
+                aggregated_shots.append(aggregated_mags)
+                # start adding timestamps from the first timestamp where the max number of magnitudes overlap
+                aggregated_timestamps.append(timestamps[i+shots_to_aggregate-1])
+            # else:
+            #     overlapping_shots = summed_mags[i:i+shots_to_aggregate]
+            #     print(overlapping_shots, np.shape(overlapping_shots), i+shots_to_aggregate, len(summed_mags))
+    else:
+        aggregated_shots = summed_mags
+        aggregated_timestamps = timestamps
 
-    # print('summed_magnitudes', summed_mags[:104])
-    return summed_mags, magnitude_bins,  angles_histogram_list, timestamps
+    #
+    _, magnitude_bins = np.histogram(aggregated_shots, bins=10000)
+
+    # print(summed_mags,'\n')
+    # print(timestamps,'\n')
+    #
+    # print('shape timestamps', np.shape(timestamps))
+    # print('shape summed mags', np.shape(summed_mags))
+    # # print(np.shape(angles_histogram_list))
+    # print('shape aggregated shots', np.shape(aggregated_shots))
+    # print('shape aggregated timestamps', np.shape(aggregated_timestamps))
+    #
+    # print(aggregated_shots)
+    # print(aggregated_timestamps)
+
+    return aggregated_shots, magnitude_bins, aggregated_timestamps
 
 
 def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
@@ -270,11 +325,14 @@ def main(videos_path, features_path, frame_width):
                 os.makedirs(of_path)
 
                 print('get angles and magnitudes')
-                summed_mags, magnitude_bins, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
+                summed_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
                 # print('summed mags, angles, timestamps: ', np.shape(summed_mags), np.shape(angles_histogram_list), np.shape(timestamps))
 
+                print('aggregate shots')
+                aggregated_shots, magnitude_bins, aggregated_timestamps = aggregate_shots(summed_mags, timestamps)
+
                 print('group angles and manitudes into shots')
-                grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps)
+                grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(aggregated_shots, angles_histogram_list, aggregated_timestamps)
                 # print('mags, angles, timestamps: ', np.shape(grouped_mags), np.shape(grouped_angles), np.shape(shot_timestamps))
 
                 print('find max magnitude')
@@ -282,16 +340,6 @@ def main(videos_path, features_path, frame_width):
 
                 print('group angles and manitudes into shots with scaled mags')
                 grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, new_grouped_angles, new_timestamps)
-
-                # print('mean, variance: ', np.mean(grouped_mags), np.var(grouped_mags))
-                # h, b = np.histogram(grouped_mags, bins=[0, 0.2, 0.4, 0.6, 0.8, 1, 1.2])
-                # print('histogram: ', h)
-                # print('bins: ', b)
-                # import matplotlib.pyplot as plt
-                # plt.hist(grouped_mags, bins=b)
-                # plt.title("histogram")
-                # plt.savefig('histograms/{}_mag_histogram.jpeg'.format(os.path.split(v_path)[1]),)
-                # plt.show()
 
                 print('find dominant movements')
                 dominant_angle_per_shot, angle_meta_info = find_dominant_movement(grouped_angles)
