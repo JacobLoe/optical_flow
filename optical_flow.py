@@ -10,7 +10,7 @@ STEP_SIZE = 1000     # the steps a video is
 WINDOW_SIZE = 2000  #
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200516'      # the version of the script
+VERSION = '2020428'      # the version of the script
 aggregate = np.mean
 
 
@@ -74,7 +74,7 @@ def calculate_optical_flow(frame1, frame2):
     return summed_mags, angles_histogram
 
 
-def get_optical_flow(v_path, frame_width):
+def get_optical_flows(v_path, frame_width):
 
     vid = cv2.VideoCapture(v_path)
     summed_mags = []    # list of summed up magnitudes
@@ -84,18 +84,48 @@ def get_optical_flow(v_path, frame_width):
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE and WINDOW_SIZE from ms to frames, dependent on the fps of the movie
     window_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*WINDOW_SIZE/1000)
 
+    ratio = WINDOW_SIZE / STEP_SIZE    # determine how many steps fit in a window
+    frames_in_a_window = int(ratio)  # determine how many frames are used for optical flow extraction
+    if frames_in_a_window == 1:   # optical flow needs two frames to be calculated
+        frames_in_a_window = 1
+
+    print('frames in a window', frames_in_a_window)
+    print('window size in frames: ', window_size_in_frames)
+    #
+    # print(sdag)
     # go through the video and save the optical flow at each timestamp
     while vid.isOpened():
-        # read the frame at the current timestamp, stop the reading if the video is finished
-        ret, curr_frame = read_frame(vid, timestamp_frames, frame_width)
+        # read frames in a window and save them
+        frames = []
+        for i in range(frames_in_a_window):
+            # create equally spaced timestamps
+            ts = timestamp_frames + (i * window_size_in_frames / frames_in_a_window)
+            print(ts)
+            ret, frame = read_frame(vid, ts, frame_width)
+            if not ret:
+                break
+            frames.append(frame)
         if not ret:
             break
-        # read the "future" frame, at the end of the window, stop the reading if the video is finished
-        ret, future_frame = read_frame(vid, timestamp_frames + window_size_in_frames, frame_width)
-        if not ret:
-            break
-        # calculate the optical flow for the current and the future frame, return unchanged magnitudes and a histogram for the angles found between the frames
-        mag, angles_histogram = calculate_optical_flow(curr_frame, future_frame)
+
+        print('shape frames', np.shape(frames))
+        prev_frame = frames[0]
+
+        for f in frames[1:]:
+            mag, angles_histogram = calculate_optical_flow(prev_frame, f)
+            prev_frame = f
+
+        print(asd)
+        # # read the frame at the current timestamp, stop the reading if the video is finished
+        # ret, curr_frame = read_frame(vid, timestamp_frames, frame_width)
+        # if not ret:
+        #     break
+        # # read the "future" frame, at the end of the window, stop the reading if the video is finished
+        # ret, future_frame = read_frame(vid, timestamp_frames + window_size_in_frames, frame_width)
+        # if not ret:
+        #     break
+        # # calculate the optical flow for the current and the future frame, return unchanged magnitudes and a histogram for the angles found between the frames
+        # mag, angles_histogram = calculate_optical_flow(curr_frame, future_frame)
 
         # save the timestamp of the current frame
         timestamps.append(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000))
@@ -122,7 +152,7 @@ def aggregate_shots(summed_mags, timestamps):
     # print('shots_to_aggregate: ', shots_to_aggregate)
     # check the ratio of WINDOW_SIZE and STEP_SIZE, if its below or equal to 1 there is no overlap between shots and aggregation is not needed
     if not ratio <= 1:
-        for i in range(len(summed_mags)):
+        for i in tqdm(range(len(summed_mags))):
             # only aggregate shots if there are enough shots left in summed_mags
             if i+shots_to_aggregate <= len(summed_mags):
                 overlapping_shots = summed_mags[i:i+shots_to_aggregate]
@@ -325,7 +355,7 @@ def main(videos_path, features_path, frame_width):
                 os.makedirs(of_path)
 
                 print('get angles and magnitudes')
-                summed_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
+                summed_mags, angles_histogram_list, timestamps = get_optical_flows(v_path, frame_width)
                 # print('summed mags, angles, timestamps: ', np.shape(summed_mags), np.shape(angles_histogram_list), np.shape(timestamps))
 
                 print('aggregate shots')
