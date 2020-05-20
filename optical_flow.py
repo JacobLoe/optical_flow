@@ -7,10 +7,10 @@ from tqdm import tqdm
 import shutil
 
 STEP_SIZE = 1000     # the steps a video is
-WINDOW_SIZE = 2000  #
+WINDOW_SIZE = 1000  #
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '2020428'      # the version of the script
+VERSION = '20200520'      # the version of the script
 aggregate = np.mean
 
 
@@ -74,7 +74,7 @@ def calculate_optical_flow(frame1, frame2):
     return summed_mags, angles_histogram
 
 
-def get_optical_flows(v_path, frame_width):
+def get_optical_flow(v_path, frame_width):
 
     vid = cv2.VideoCapture(v_path)
     summed_mags = []    # list of summed up magnitudes
@@ -84,51 +84,22 @@ def get_optical_flows(v_path, frame_width):
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*STEP_SIZE/1000)  # convert the STEP_SIZE and WINDOW_SIZE from ms to frames, dependent on the fps of the movie
     window_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*WINDOW_SIZE/1000)
 
-    ratio = WINDOW_SIZE / STEP_SIZE    # determine how many steps fit in a window
-    frames_in_a_window = int(ratio)  # determine how many frames are used for optical flow extraction
-    if frames_in_a_window == 1:   # optical flow needs two frames to be calculated
-        frames_in_a_window = 1
-
-    print('frames in a window', frames_in_a_window)
-    print('window size in frames: ', window_size_in_frames)
-    #
-    # print(sdag)
     # go through the video and save the optical flow at each timestamp
     while vid.isOpened():
-        # read frames in a window and save them
-        frames = []
-        for i in range(frames_in_a_window):
-            # create equally spaced timestamps
-            ts = timestamp_frames + (i * window_size_in_frames / frames_in_a_window)
-            print(ts)
-            ret, frame = read_frame(vid, ts, frame_width)
-            if not ret:
-                break
-            frames.append(frame)
+        # read the frame at the current timestamp, stop the reading if the video is finished
+        ret, curr_frame = read_frame(vid, timestamp_frames, frame_width)
         if not ret:
             break
+        # read the "future" frame, at the end of the window, stop the reading if the video is finished
+        ret, future_frame = read_frame(vid, timestamp_frames + window_size_in_frames, frame_width)
+        if not ret:
+            break
+        # calculate the optical flow for the current and the future frame, return the summed up magnitudes and a histogram for the angles found between the frames
+        mag, angles_histogram = calculate_optical_flow(curr_frame, future_frame)
 
-        print('shape frames', np.shape(frames))
-        prev_frame = frames[0]
-
-        for f in frames[1:]:
-            mag, angles_histogram = calculate_optical_flow(prev_frame, f)
-            prev_frame = f
-
-        print(asd)
-        # # read the frame at the current timestamp, stop the reading if the video is finished
-        # ret, curr_frame = read_frame(vid, timestamp_frames, frame_width)
-        # if not ret:
-        #     break
-        # # read the "future" frame, at the end of the window, stop the reading if the video is finished
-        # ret, future_frame = read_frame(vid, timestamp_frames + window_size_in_frames, frame_width)
-        # if not ret:
-        #     break
-        # # calculate the optical flow for the current and the future frame, return unchanged magnitudes and a histogram for the angles found between the frames
-        # mag, angles_histogram = calculate_optical_flow(curr_frame, future_frame)
-
-        # save the timestamp of the current frame
-        timestamps.append(int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000))
+        # save the "shot boundaries" of the current frame, begin is the current timestamp, end is current+STEP_SIZE
+        timestamps.append((int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000),
+                           int((timestamp_frames+step_size_in_frames)/vid.get(cv2.CAP_PROP_FPS)*1000)))
         # save the two optical flow components
         summed_mags.append(mag)
         angles_histogram_list.append(angles_histogram)
@@ -137,82 +108,68 @@ def get_optical_flows(v_path, frame_width):
         timestamp_frames += step_size_in_frames
     vid.release()
     cv2.destroyAllWindows()
+
     return summed_mags, angles_histogram_list, timestamps
 
 
 def aggregate_shots(summed_mags, timestamps):
     aggregated_shots = []   # list of aggregated magnitudes
     aggregated_timestamps = []  # list of timestamps, corresponding to aggregated_shots
-    #
-    ratio = WINDOW_SIZE / STEP_SIZE     # determines whether shots are aggregated or not
+
+    ratio = WINDOW_SIZE / STEP_SIZE     # determines whether shots are aggregated or not, values <=1 mean no aggregation is happening (no shots are overlapping)
     shots_to_aggregate = int(ratio)     # determines how many shots are aggregated together
     if shots_to_aggregate == 1 and ratio > 1:   # if the ratio is greater than 1 there are shots to be aggregated, but the ratio would be rounded down to 1 in the next step
-        shots_to_aggregate = 2                  # and prevent shot aggregation. To prevent this from happening shots_to_aggregate is set to 2, if
-    # print('ratio window/step: ', ratio)
-    # print('shots_to_aggregate: ', shots_to_aggregate)
-    # check the ratio of WINDOW_SIZE and STEP_SIZE, if its below or equal to 1 there is no overlap between shots and aggregation is not needed
-    if not ratio <= 1:
+        shots_to_aggregate = 2                  # and prevent shot aggregation. To prevent this from happening shots_to_aggregate is set to 2
+
+    if ratio <= 1:  # do nothing if the shots are not overlapping
+        aggregated_shots = summed_mags
+        aggregated_timestamps = timestamps
+    else:
         for i in tqdm(range(len(summed_mags))):
             # only aggregate shots if there are enough shots left in summed_mags
             if i+shots_to_aggregate <= len(summed_mags):
-                overlapping_shots = summed_mags[i:i+shots_to_aggregate]
-                # print(overlapping_shots, np.shape(overlapping_shots), i+shots_to_aggregate, len(summed_mags))
-                aggregated_mags = aggregate(overlapping_shots)
+
+                overlapping_shots = summed_mags[i:i+shots_to_aggregate]     # get the overlapping shots from summed mags
+                aggregated_mags = aggregate(overlapping_shots)      # with the aggregate function, create one value
                 aggregated_shots.append(aggregated_mags)
+
                 # start adding timestamps from the first timestamp where the max number of magnitudes overlap
                 aggregated_timestamps.append(timestamps[i+shots_to_aggregate-1])
-            # else:
-            #     overlapping_shots = summed_mags[i:i+shots_to_aggregate]
-            #     print(overlapping_shots, np.shape(overlapping_shots), i+shots_to_aggregate, len(summed_mags))
-    else:
-        aggregated_shots = summed_mags
-        aggregated_timestamps = timestamps
 
-    #
+    # compute bins from the aggregated shots to be used for the scaling of the magnitudes
     _, magnitude_bins = np.histogram(aggregated_shots, bins=10000)
-
-    # print(summed_mags,'\n')
-    # print(timestamps,'\n')
-    #
-    # print('shape timestamps', np.shape(timestamps))
-    # print('shape summed mags', np.shape(summed_mags))
-    # # print(np.shape(angles_histogram_list))
-    # print('shape aggregated shots', np.shape(aggregated_shots))
-    # print('shape aggregated timestamps', np.shape(aggregated_timestamps))
-    #
-    # print(aggregated_shots)
-    # print(aggregated_timestamps)
 
     return aggregated_shots, magnitude_bins, aggregated_timestamps
 
 
 def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
+
     grouped_mags = [summed_mags[0]]  # start the grouped mag list
     grouped_angles = [angles_histogram_list[0]]  # save the first the first histogram
     shot_timestamps = []
     prev_mag = summed_mags[0]  # save the first magnitude for later comparison as previous magnitude
-    start_ms = 0
-    end_ms = timestamps[0]  # set the end timestamp
+    start_ms = timestamps[0][0]
+    end_ms = timestamps[0][1]  # set the end timestamp
     j = 0
-    # iterate through the magnitudes,
-    for i, curr_mag in enumerate(summed_mags[1:]):
+    # iterate through the magnitudes, timestamps and angles starting from the second element
+    for curr_mag, curr_ts, curr_angles_histogram in zip(summed_mags[1:], timestamps[1:], angles_histogram_list[1:]):
         if prev_mag == curr_mag:  # as long as the previous and current magnitude are the same
-            end_ms = timestamps[i]     # set the end of the "current" shot to the timestamp of the current magnitude
+            end_ms = curr_ts[1]     # set the end of the "current" shot to the timestamp of the current magnitude
 
             # sum up all the histograms (of the angles) and the magnitudes for each angle
             for key in grouped_angles[j]:
-                grouped_angles[j][key][0] += angles_histogram_list[i][key][0]
-                grouped_angles[j][key][1] += angles_histogram_list[i][key][1]
+                grouped_angles[j][key][0] += curr_angles_histogram[key][0]
+                grouped_angles[j][key][1] += curr_angles_histogram[key][1]
 
         else:   # if the magnitudes deviate add a new entry
             shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries
             start_ms = end_ms   # set the start timestamp of the next shot as the end of the current shot
-            end_ms = timestamps[i]  # set the end of the "current" shot to the timestamp of the current magnitude
+            end_ms = curr_ts[1]  # set the end of the "current" shot to the timestamp of the current magnitude
 
             grouped_mags.append(curr_mag)  # add the next value to the grouped mag list
             prev_mag = curr_mag  # save the first magnitude for later comparison as previous mag
 
-            grouped_angles.append(angles_histogram_list[i])
+            grouped_angles.append(curr_angles_histogram)
             j += 1
 
     shot_timestamps.append((start_ms, end_ms))  # set the shot boundaries for the last shot
@@ -223,9 +180,8 @@ def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
 def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timestamps):
 
     # go through the bins in reverse
-    # for each magnitude see if
     reversed_magnitude_bins = list(reversed(magnitude_bins))
-    nmm = False
+    nmm = False     # is set to "True" if a new max magnitude is found
     new_max_magnitude = 0
     for i, b in enumerate(reversed_magnitude_bins):
         if i == 0:
@@ -260,7 +216,6 @@ def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timest
     for i, al in enumerate(grouped_angles):
         for key_angles in al:
             grouped_angles[i][key_angles][1] / new_max_magnitude
-    # print(np.min(scaled_mags), np.max(scaled_mags))
 
     # clip values greater than 1 to 1
     clipped_mags = np.clip(scaled_mags, 0, 1)
@@ -268,9 +223,7 @@ def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timest
     indices_digitized_mags = np.digitize(clipped_mags, BINS, right=True)    # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
     digitized_mags = [BINS[i] for i in indices_digitized_mags]    # map the magnitudes to the values in BINS
 
-    timestamps = [end for begin, end in shot_timestamps]
-
-    return digitized_mags, grouped_angles, timestamps
+    return digitized_mags, grouped_angles
 
 
 def find_dominant_movement(grouped_angles):
@@ -355,21 +308,22 @@ def main(videos_path, features_path, frame_width):
                 os.makedirs(of_path)
 
                 print('get angles and magnitudes')
-                summed_mags, angles_histogram_list, timestamps = get_optical_flows(v_path, frame_width)
+                summed_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
                 # print('summed mags, angles, timestamps: ', np.shape(summed_mags), np.shape(angles_histogram_list), np.shape(timestamps))
 
                 print('aggregate shots')
                 aggregated_shots, magnitude_bins, aggregated_timestamps = aggregate_shots(summed_mags, timestamps)
+                # print('aggregated_shots, aggregated_timestamps', np.shape(aggregated_shots), np.shape(aggregated_timestamps))
 
                 print('group angles and manitudes into shots')
                 grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(aggregated_shots, angles_histogram_list, aggregated_timestamps)
                 # print('mags, angles, timestamps: ', np.shape(grouped_mags), np.shape(grouped_angles), np.shape(shot_timestamps))
 
                 print('find max magnitude')
-                digitized_mags, new_grouped_angles, new_timestamps = find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timestamps)
+                digitized_mags, new_grouped_angles = find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, shot_timestamps)
 
-                print('group angles and manitudes into shots with scaled mags')
-                grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, new_grouped_angles, new_timestamps)
+                print('group angles and magnitudes into shots with scaled mags')
+                grouped_mags, grouped_angles, shot_timestamps = group_angles_and_magnitudes(digitized_mags, new_grouped_angles, shot_timestamps)
 
                 print('find dominant movements')
                 dominant_angle_per_shot, angle_meta_info = find_dominant_movement(grouped_angles)
