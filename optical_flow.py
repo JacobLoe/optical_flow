@@ -5,12 +5,24 @@ import argparse
 import glob
 from tqdm import tqdm
 import shutil
+from scipy.spatial.distance import euclidean
 
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200527'      # the version of the script
+VERSION = '20200602'      # the version of the script
 aggregate = np.mean
+
+
+def bin_values(value, bins):
+
+    distances = []
+    for b in bins:  # compute distance of the input to each bin
+        distances.append(euclidean(b, value))
+
+    i = np.argmin(distances)    #
+    new_value = bins[i]
+    return new_value
 
 
 def resize_frame(frame, frame_width):
@@ -53,12 +65,15 @@ def calculate_optical_flow(frame1, frame2):
     # sum up all the magnitudes between neighboring frames in the segment creating a single value
     summed_mags = np.sum(mag)
 
-    # digitize the angles
-    ang = ang * 180 / np.pi
-    angles_newshape = np.shape(ang)[0] * np.shape(ang)[1]
+    ang = ang * 180 / np.pi     #
+
+    angles_newshape = np.shape(ang)[0] * np.shape(ang)[1]   # reshape the angles to be one-dimensional
     ang = np.reshape(ang, newshape=angles_newshape)
-    indices_digitized_angles = np.digitize(ang, ANGLE_BINS, right=True)
-    digitized_angles = [ANGLE_BINS[i] for i in indices_digitized_angles]
+
+    # digitize the angles
+    # indices_digitized_angles = np.digitize(ang, ANGLE_BINS, right=True)
+    # digitized_angles = [ANGLE_BINS[i] for i in indices_digitized_angles]
+    digitized_angles = [bin_values(a, ANGLE_BINS) for a in ang]
 
     # create an empty histogram
     angles_histogram = {b: [0, 0] for b in ANGLE_BINS}
@@ -108,6 +123,9 @@ def get_optical_flow(v_path, frame_width):
     vid.release()
     cv2.destroyAllWindows()
 
+    assert np.shape(summed_mags)[0] == np.shape(angles_histogram_list)[0]
+    assert np.shape(summed_mags)[0] == np.shape(timestamps)[0]
+
     return summed_mags, angles_histogram_list, timestamps
 
 
@@ -125,18 +143,27 @@ def aggregate_segments(summed_mags, timestamps):
         aggregated_timestamps = timestamps
     else:
         for i in tqdm(range(len(summed_mags))):
-            # only aggregate segments if there are enough segments left in summed_mags
-            if i+segments_to_aggregate <= len(summed_mags):
+            if i < (segments_to_aggregate-1):   # aggregate at timestamps where less segments then segments_to_aggregate where extracted
+                #
+                overlapping_segments = summed_mags[i:i+i+1]     # take the the number of overlapping segments at the timestamp (less than segments_to_aggregate
+                aggregated_mags = aggregate(overlapping_segments)      # with the aggregate function, create one value
+                aggregated_segments.append(aggregated_mags)
 
+                aggregated_timestamps.append(timestamps[i])
+            # only aggregate segments if there are enough segments left in summed_mags
+            else:
                 overlapping_segments = summed_mags[i:i+segments_to_aggregate]     # get the overlapping segments from summed mags
                 aggregated_mags = aggregate(overlapping_segments)      # with the aggregate function, create one value
                 aggregated_segments.append(aggregated_mags)
 
                 # start adding timestamps from the first timestamp where the max number of magnitudes overlap
-                aggregated_timestamps.append(timestamps[i+segments_to_aggregate-1])
+                aggregated_timestamps.append(timestamps[i])
 
     # compute bins from the aggregated segments to be used for the scaling of the magnitudes
     _, magnitude_bins = np.histogram(aggregated_segments, bins=10000)
+
+    assert len(summed_mags) == len(aggregated_timestamps)
+    assert len(aggregated_timestamps) == len(aggregated_segments)
 
     return aggregated_segments, magnitude_bins, aggregated_timestamps
 
@@ -173,6 +200,9 @@ def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
 
     segment_timestamps.append((start_ms, end_ms))  # set the segment boundaries for the last segment
 
+    assert len(grouped_mags) == len(grouped_angles)
+    assert len(grouped_mags) == len(segment_timestamps)
+
     return grouped_mags, grouped_angles, segment_timestamps
 
 
@@ -187,14 +217,11 @@ def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, segment_tim
             for j, m in enumerate(grouped_mags):
                 # if a segment that falls into the bin >=b is longer than the step_size stop the search
                 # and take the magnitude of this segment as the new max magnitude for scaling
-                # print('begin, end, dur, step_size', segment_timestamps[j][0], segment_timestamps[j][1], segment_timestamps[j][1] - segment_timestamps[j][0], step_size)
-
                 if m >= b and segment_timestamps[j][1]-segment_timestamps[j][0] > step_size:
                     new_max_magnitude = m
                     nmm = True
                     break
         else:
-            # for each segment
             for j, m in enumerate(grouped_mags):
                 # check if m is higher/equal than the current bin and lower than the previous
                 if b <= m < reversed_magnitude_bins[i-1] and segment_timestamps[j][1]-segment_timestamps[j][0] > step_size:
@@ -216,26 +243,17 @@ def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, segment_tim
 
     # clip values greater than 1 to 1
     clipped_mags = np.clip(scaled_mags, 0, 1)
+    digitized_mags = [bin_values(x, BINS) for x in clipped_mags]
 
-    #
-    indices_digitized_mags = np.digitize(clipped_mags, BINS, right=True)  # returns a numpy array with shape of rounded_mags, the indices correspond to the position in BINS
-    digitized_mags = [BINS[i] for i in indices_digitized_mags]  # map the magnitudes to the values in BINS
-
-    # print(grouped_angles[0])
-
-    # scale the magnitudes that are corresponding to the angles
+    # scale the magnitudes that are corresponding to the angles and digitize them
     for i, al in enumerate(grouped_angles):
         for key_angles in al:
             aux = grouped_angles[i][key_angles][1] / new_max_magnitude
             aux = np.clip(aux, 0, 1)
-            # aux = np.around(aux, decimals=4)
-            aux_i = np.digitize(aux, BINS, right=True)
-            # aux = BINS[aux_i]
+            aux = bin_values(aux, BINS)
             grouped_angles[i][key_angles][1] = aux
 
-    # print(grouped_angles[0])
-    # print(grouped_angles[40])
-    # print(ada)
+    assert len(digitized_mags) == len(grouped_angles)
 
     return digitized_mags, grouped_angles
 
@@ -257,6 +275,9 @@ def find_dominant_movement(grouped_angles):
         info = [np.min(list(aux_histogram.values())), np.max(list(aux_histogram.values())),
                 np.mean(list(aux_histogram.values())), np.var(list(aux_histogram.values()))]
         meta_info.append(info)
+
+    assert len(dominant_angle_per_segment) == len(meta_info)
+
     return dominant_angle_per_segment, meta_info
 
 
@@ -395,6 +416,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     step_size = args.step_size
-    window_size = args.step_size
+    window_size = args.window_size
 
     main(args.videos_dir, args.features_dir, args.frame_width)
