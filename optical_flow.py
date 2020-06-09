@@ -10,7 +10,7 @@ from scipy.spatial.distance import euclidean
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200602'      # the version of the script
+VERSION = '20200609'      # the version of the script
 aggregate = np.mean
 
 
@@ -20,7 +20,7 @@ def bin_values(value, bins):
     for b in bins:  # compute distance of the input to each bin
         distances.append(euclidean(b, value))
 
-    i = np.argmin(distances)    #
+    i = np.argmin(distances)
     new_value = bins[i]
     return new_value
 
@@ -71,9 +71,9 @@ def calculate_optical_flow(frame1, frame2):
     ang = np.reshape(ang, newshape=angles_newshape)
 
     # digitize the angles
-    # indices_digitized_angles = np.digitize(ang, ANGLE_BINS, right=True)
-    # digitized_angles = [ANGLE_BINS[i] for i in indices_digitized_angles]
-    digitized_angles = [bin_values(a, ANGLE_BINS) for a in ang]
+    indices_digitized_angles = np.digitize(ang, ANGLE_BINS, right=True)
+    digitized_angles = [ANGLE_BINS[i] for i in indices_digitized_angles]
+    # digitized_angles = [bin_values(a, ANGLE_BINS) for a in ang]
 
     # create an empty histogram
     angles_histogram = {b: [0, 0] for b in ANGLE_BINS}
@@ -159,13 +159,10 @@ def aggregate_segments(summed_mags, timestamps):
                 # start adding timestamps from the first timestamp where the max number of magnitudes overlap
                 aggregated_timestamps.append(timestamps[i])
 
-    # compute bins from the aggregated segments to be used for the scaling of the magnitudes
-    _, magnitude_bins = np.histogram(aggregated_segments, bins=10000)
-
     assert len(summed_mags) == len(aggregated_timestamps)
     assert len(aggregated_timestamps) == len(aggregated_segments)
 
-    return aggregated_segments, magnitude_bins, aggregated_timestamps
+    return aggregated_segments, aggregated_timestamps
 
 
 def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
@@ -206,56 +203,37 @@ def group_angles_and_magnitudes(summed_mags, angles_histogram_list, timestamps):
     return grouped_mags, grouped_angles, segment_timestamps
 
 
-def find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, segment_timestamps):
+def find_max_magnitude(grouped_mags, grouped_angles, segment_timestamps):
 
-    # go through the bins in reverse
-    reversed_magnitude_bins = list(reversed(magnitude_bins))
-    nmm = False     # is set to "True" if a new max magnitude is found
-    new_max_magnitude = 0
-    for i, b in enumerate(reversed_magnitude_bins):
-        if i == 0:
-            for j, m in enumerate(grouped_mags):
-                # if a segment that falls into the bin >=b is longer than the step_size stop the search
-                # and take the magnitude of this segment as the new max magnitude for scaling
-                if m >= b and segment_timestamps[j][1]-segment_timestamps[j][0] > step_size:
-                    new_max_magnitude = m
-                    nmm = True
-                    break
+    reversed_magnitudes = sorted(grouped_mags, reverse=True)
+    nmm = False
+    for j, new_max_magnitude in enumerate(reversed_magnitudes):
+        if new_max_magnitude == 0:
+            scaled_mags = grouped_mags
         else:
-            for j, m in enumerate(grouped_mags):
-                # check if m is higher/equal than the current bin and lower than the previous
-                if b <= m < reversed_magnitude_bins[i-1] and segment_timestamps[j][1]-segment_timestamps[j][0] > step_size:
-                    new_max_magnitude = m
-                    nmm = True
-                    break
+            scaled_mags = grouped_mags/new_max_magnitude
+
+        clipped_mags = np.clip(scaled_mags, 0, 1)
+        digitized_mags = [bin_values(x, BINS) for x in clipped_mags]
+
+        # scale the magnitudes that are corresponding to the angles and digitize them
+        for i, al in enumerate(grouped_angles):
+            for key_angles in al:
+                aux = grouped_angles[i][key_angles][1] / new_max_magnitude
+                aux = np.clip(aux, 0, 1)
+                aux = bin_values(aux, BINS)
+                grouped_angles[i][key_angles][1] = aux
+
+        new_grouped_mags, new_grouped_angles, new_segment_timestamps = group_angles_and_magnitudes(digitized_mags, grouped_angles, segment_timestamps)
+        for mag, ts in zip(new_grouped_mags, new_segment_timestamps):
+            if ts[1]-ts[0] >= minimum_segment_length and mag == 1:
+                nmm = True
+                break
         if nmm:
             break
 
-    # scale the magnitudes using the new found "maximum" magnitude
-    # if no magnitude was found (no segment is longer than the step_size), take the maximum magnitude of the movie as the factor
-    if new_max_magnitude == 0:
-        new_max_magnitude = np.max(grouped_mags)
-        scaled_mags = grouped_mags / new_max_magnitude
-        print('no new maximum magnitude could be found, ')
-    else:
-        print('a new max magnitude was found')
-        scaled_mags = grouped_mags / new_max_magnitude
-
-    # clip values greater than 1 to 1
-    clipped_mags = np.clip(scaled_mags, 0, 1)
-    digitized_mags = [bin_values(x, BINS) for x in clipped_mags]
-
-    # scale the magnitudes that are corresponding to the angles and digitize them
-    for i, al in enumerate(grouped_angles):
-        for key_angles in al:
-            aux = grouped_angles[i][key_angles][1] / new_max_magnitude
-            aux = np.clip(aux, 0, 1)
-            aux = bin_values(aux, BINS)
-            grouped_angles[i][key_angles][1] = aux
-
-    assert len(digitized_mags) == len(grouped_angles)
-
-    return digitized_mags, grouped_angles
+    assert len(new_grouped_angles) == len(new_grouped_mags)
+    return new_grouped_mags, new_grouped_angles, new_segment_timestamps
 
 
 def find_dominant_movement(grouped_angles):
@@ -361,24 +339,15 @@ def main(videos_path, features_path, frame_width):
             if not os.path.isdir(of_path):
                 print('optical flow is calculated for {}'.format(video_name))
                 os.makedirs(of_path)
-
+                HIST.append(video_name)
                 print('get angles and magnitudes')
                 summed_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
-                # print('summed mags, angles, timestamps: ', np.shape(summed_mags), np.shape(angles_histogram_list), np.shape(timestamps))
 
                 print('aggregate segments')
-                aggregated_segments, magnitude_bins, aggregated_timestamps = aggregate_segments(summed_mags, timestamps)
-                # print('aggregated_segments, aggregated_timestamps', np.shape(aggregated_segments), np.shape(aggregated_timestamps))
-
-                print('group angles and manitudes into segments')
-                grouped_mags, grouped_angles, segment_timestamps = group_angles_and_magnitudes(aggregated_segments, angles_histogram_list, aggregated_timestamps)
-                # print('mags, angles, timestamps: ', np.shape(grouped_mags), np.shape(grouped_angles), np.shape(segment_timestamps))
+                aggregated_segments, aggregated_timestamps = aggregate_segments(summed_mags, timestamps)
 
                 print('find max magnitude')
-                digitized_mags, new_grouped_angles = find_max_magnitude(grouped_mags, magnitude_bins, grouped_angles, segment_timestamps)
-
-                print('group angles and magnitudes into segments with scaled mags')
-                grouped_mags, grouped_angles, segment_timestamps = group_angles_and_magnitudes(digitized_mags, new_grouped_angles, segment_timestamps)
+                grouped_mags, grouped_angles, segment_timestamps = find_max_magnitude(aggregated_segments, angles_histogram_list, aggregated_timestamps)
 
                 print('find dominant movements')
                 dominant_angle_per_segment, angle_meta_info = find_dominant_movement(grouped_angles)
@@ -410,12 +379,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("videos_dir", help="the directory where the video-files are stored")
     parser.add_argument("features_dir", help="the directory where the images are to be stored")
-    parser.add_argument("--frame_width", type=int, default=129, help="set the width at which to which the frames are rescaled, default 129")
-    parser.add_argument("--step_size", type=int, default=1000, help="")
-    parser.add_argument("--window_size", type=int, default=1000, help="")
+    parser.add_argument("--frame_width", type=int, default=129, help="set the width at which to which the frames are rescaled, default is 129")
+    parser.add_argument("--step_size", type=int, default=300, help="defines at which distances the optical flow is calculated, in milliseconds, default is 300")
+    parser.add_argument("--window_size", type=int, default=300,
+                        help="defines the range in which images for optical flow calculation are extracted, if window_size is equal to step_size two frames are extracted, default is 300")
+    parser.add_argument('--minimum_segment_length', type=int, default=1000, help='default is 1000')
     args = parser.parse_args()
 
     step_size = args.step_size
     window_size = args.window_size
+    minimum_segment_length = args.minimum_segment_length
 
     main(args.videos_dir, args.features_dir, args.frame_width)
