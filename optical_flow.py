@@ -264,9 +264,20 @@ def write_mag_to_csv(f_path, grouped_mags, segment_timestamps):
         os.makedirs(os.path.join(f_path, 'optical_flow'))
 
     if len(grouped_mags) > 500:
+
         pieces = int((len(grouped_mags) / 500))
 
         for p in range(pieces):
+            mag_csv_path = os.path.join(f_path, 'optical_flow/mag_{}_optical_flow_{}.csv'.format(p, os.path.split(f_path)[1]))
+            aux_mag = grouped_mags[p * 500:(p + 1) * 500]
+            aux_ts = segment_timestamps[p * 500:(p + 1) * 500]
+            with open(mag_csv_path, 'w', newline='') as f:
+                for i, mag in enumerate(aux_mag):
+                    line = str(aux_ts[i][0]) + ' ' + str(aux_ts[i][1]) + ' ' + str(mag)
+                    f.write(line)
+                    f.write('\n')
+        if pieces < (len(grouped_mags)/500):
+            p += 1
             mag_csv_path = os.path.join(f_path, 'optical_flow/mag_{}_optical_flow_{}.csv'.format(p, os.path.split(f_path)[1]))
             aux_mag = grouped_mags[p * 500:(p + 1) * 500]
             aux_ts = segment_timestamps[p * 500:(p + 1) * 500]
@@ -294,6 +305,20 @@ def write_angle_to_csv(f_path, dominant_angle_per_segment, angle_meta_info, segm
         pieces = int((len(dominant_angle_per_segment) / 500))
 
         for p in range(pieces):
+            aux_angles = dominant_angle_per_segment[p * 500:(p + 1) * 500]
+            aux_info = angle_meta_info[p * 500:(p + 1) * 500]
+            aux_ts = segment_timestamps[p * 500:(p + 1) * 500]
+
+            angle_csv_path = os.path.join(f_path, 'optical_flow/angle_{}_optical_flow_{}.csv'.format(p, os.path.split(f_path)[1]))
+
+            with open(angle_csv_path, 'w', newline='') as f:
+                for i, angle in enumerate(aux_angles):
+                    ami = str(aux_info[i]).replace(' ', '')
+                    line = str(aux_ts[i][0]) + ' ' + str(aux_ts[i][1]) + ' ' + str(angle) + ' ' + ami
+                    f.write(line)
+                    f.write('\n')
+        if pieces < (len(dominant_angle_per_segment)/500):
+            p += 1
             aux_angles = dominant_angle_per_segment[p * 500:(p + 1) * 500]
             aux_info = angle_meta_info[p * 500:(p + 1) * 500]
             aux_ts = segment_timestamps[p * 500:(p + 1) * 500]
@@ -339,7 +364,7 @@ def main(videos_path, features_path, frame_width):
             if not os.path.isdir(of_path):
                 print('optical flow is calculated for {}'.format(video_name))
                 os.makedirs(of_path)
-                HIST.append(video_name)
+
                 print('get angles and magnitudes')
                 summed_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
 
