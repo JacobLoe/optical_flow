@@ -365,21 +365,21 @@ def main(videos_path, features_path, frame_width):
                 print('optical flow is calculated for {}'.format(video_name))
                 os.makedirs(of_path)
 
-                print('get angles and magnitudes')
-                summed_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
-
-                print('aggregate segments')
-                aggregated_segments, aggregated_timestamps = aggregate_segments(summed_mags, timestamps)
-
-                print('find max magnitude')
-                grouped_mags, grouped_angles, segment_timestamps = find_max_magnitude(aggregated_segments, angles_histogram_list, aggregated_timestamps)
-
-                print('find dominant movements')
-                dominant_angle_per_segment, angle_meta_info = find_dominant_movement(grouped_angles)
-
-                print('write results to csv')
-                write_mag_to_csv(f_path, grouped_mags, segment_timestamps)
-                write_angle_to_csv(f_path, dominant_angle_per_segment, angle_meta_info, segment_timestamps)
+                # print('get angles and magnitudes')
+                # summed_mags, angles_histogram_list, timestamps = get_optical_flow(v_path, frame_width)
+                #
+                # print('aggregate segments')
+                # aggregated_segments, aggregated_timestamps = aggregate_segments(summed_mags, timestamps)
+                #
+                # print('find max magnitude')
+                # grouped_mags, grouped_angles, segment_timestamps = find_max_magnitude(aggregated_segments, angles_histogram_list, aggregated_timestamps)
+                #
+                # print('find dominant movements')
+                # dominant_angle_per_segment, angle_meta_info = find_dominant_movement(grouped_angles)
+                #
+                # print('write results to csv')
+                # write_mag_to_csv(f_path, grouped_mags, segment_timestamps)
+                # write_angle_to_csv(f_path, dominant_angle_per_segment, angle_meta_info, segment_timestamps)
 
                 # create a hidden file to signal that the optical flow for a movie is done
                 # write the current version of the script in the file
