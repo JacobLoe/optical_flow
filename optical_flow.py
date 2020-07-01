@@ -10,7 +10,7 @@ from scipy.spatial.distance import euclidean
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200609'      # the version of the script
+VERSION = '20200630'      # the version of the script
 aggregate = np.mean
 
 
