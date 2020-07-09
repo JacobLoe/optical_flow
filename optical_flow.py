@@ -10,7 +10,7 @@ from scipy.spatial.distance import euclidean
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200630'      # the version of the script
+VERSION = '20200709'      # the version of the script
 aggregate = np.mean
 
 
@@ -80,7 +80,8 @@ def get_optical_flow(v_path, frame_width):
 
     timestamps.append((int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000)))
 
-    # go through the video and save the optical flow at each timestamp
+    # go through the video and extract two frames, one at the current timestamp, the second at timestamp+window_size
+    # save the optical flow at each timestamp
     while vid.isOpened():
         # read the frame at the current timestamp, stop the reading if the video is finished
         ret, curr_frame = read_frame(vid, timestamp_frames, frame_width)
@@ -114,34 +115,46 @@ def aggregate_segments(summed_mags):
     if segments_to_aggregate == 1 and ratio > 1:   # if the ratio is greater than 1 there are segments to be aggregated, but the ratio would be rounded down to 1 in the next step
         segments_to_aggregate = 2                  # and prevent segment aggregation. To prevent this from happening segments_to_aggregate is set to 2
 
+    step = int(segments_to_aggregate/2)
+
     if ratio <= 1:  # do nothing if the segments are not overlapping
         aggregated_segments = summed_mags
     else:
-        for i in tqdm(range(len(summed_mags))):
+        for i in range(len(summed_mags)):
             if i < (segments_to_aggregate-1):   # aggregate at timestamps where less segments then segments_to_aggregate where extracted
-                #
+
                 overlapping_segments = summed_mags[i:i+i+1]     # take the the number of overlapping segments at the timestamp (less than segments_to_aggregate
+                                                                # only "future" timestamps are used here
                 aggregated_mags = aggregate(overlapping_segments)      # with the aggregate function, create one value
                 aggregated_segments.append(aggregated_mags)
-
-            # only aggregate segments if there are enough segments left in summed_mags
             else:
-                overlapping_segments = summed_mags[i:i+segments_to_aggregate]     # get the overlapping segments from summed mags
+                overlapping_segments = summed_mags[i-step:i+step]     # get the overlapping segments from summed mags
                 aggregated_mags = aggregate(overlapping_segments)      # with the aggregate function, create one value
                 aggregated_segments.append(aggregated_mags)
-
-                # start adding timestamps from the first timestamp where the max number of magnitudes overlap
 
     return aggregated_segments
+
+
+def scale_magnitudes(mag, top_percentile):
+
+    # get the top n maximum magnitudes, take the lowest of them,
+    # set it as new max magnitude for scaling
+    mag_sorted = sorted(mag, reverse=True)
+
+    index_top = int(np.shape(mag)[0]*top_percentile/100)
+    top_mag = mag_sorted[:index_top]
+    max_mag = top_mag[-1]
+
+    scaled_mag = mag/max_mag
+    scaled_mag = np.clip(scaled_mag, a_min=0, a_max=1)
+    scaled_mag = list(np.round(scaled_mag, decimals=2))
+
+    return scaled_mag
 
 
 def write_mag_to_csv(f_path, mag, segment_timestamps):
     if not os.path.isdir(os.path.join(f_path, 'optical_flow')):
         os.makedirs(os.path.join(f_path, 'optical_flow'))
-
-    # scale magnitudes to 0-100
-    max_mag = np.max(mag)
-    mag = list(np.round(100*(mag/max_mag), decimals=2))
 
     mag_csv_path = os.path.join(f_path, 'optical_flow/mag_optical_flow_{}.csv'.format(os.path.split(f_path)[1]))
 
@@ -179,8 +192,10 @@ def main(videos_path, features_path, frame_width):
                 print('aggregate segments')
                 aggregated_segments = aggregate_segments(summed_mags)
 
-                print('write results to csv')
-                write_mag_to_csv(f_path, aggregated_segments, timestamps)
+                scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
+
+                # print('write results to csv')
+                # write_mag_to_csv(f_path, scaled_segments, timestamps)
 
                 # create a hidden file to signal that the optical flow for a movie is done
                 # write the current version of the script in the file
@@ -208,10 +223,14 @@ if __name__ == "__main__":
     parser.add_argument("--frame_width", type=int, default=129, help="set the width at which to which the frames are rescaled, default is 129")
     parser.add_argument("--step_size", type=int, default=300, help="defines at which distances the optical flow is calculated, in milliseconds, default is 300")
     parser.add_argument("--window_size", type=int, default=300,
-                        help="defines the range in which images for optical flow calculation are extracted, if window_size is equal to step_size two frames are extracted, default is 300")
+                        help="defines the range in which images for optical flow calculation are extracted,"
+                             " if window_size is equal to step_size two frames are extracted, default is 300")
+    parser.add_argument("--top_percentile", type=int, default=5, help="set the percentage of magnitudes that are used to determine the max magnitude,"
+                                                                      "")
     args = parser.parse_args()
 
     step_size = args.step_size
     window_size = args.window_size
+    top_percentile = args.top_percentile
 
     main(args.videos_dir, args.features_dir, args.frame_width)
