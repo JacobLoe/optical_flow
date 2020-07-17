@@ -10,7 +10,7 @@ from scipy.spatial.distance import euclidean
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200709'      # the version of the script
+VERSION = '20200715'      # the version of the script
 aggregate = np.mean
 
 
@@ -136,17 +136,8 @@ def aggregate_segments(summed_mags):
 
 
 def scale_magnitudes(mag, top_percentile):
-
-    # get the top n maximum magnitudes, take the lowest of them,
-    # set it as new max magnitude for scaling
-    mag_sorted = sorted(mag, reverse=True)
-
-    index_top = int(np.shape(mag)[0]*top_percentile/100)
-    top_mag = mag_sorted[:index_top]
-    max_mag = top_mag[-1]
-
-    scaled_mag = mag/max_mag
-    scaled_mag = np.clip(scaled_mag, a_min=0, a_max=1)
+    scaled_mag = mag / np.percentile(mag, top_percentile)
+    scaled_mag = np.clip(scaled_mag, a_min=0, a_max=1)*100.
     scaled_mag = list(np.round(scaled_mag, decimals=2))
 
     return scaled_mag
@@ -166,7 +157,6 @@ def write_mag_to_csv(f_path, mag, segment_timestamps):
 
 def main(videos_path, features_path, frame_width):
     list_videos_path = glob.glob(os.path.join(videos_path, '**/*.mp4'), recursive=True)  # get the list of videos in videos_dir
-
     cp = os.path.commonprefix(list_videos_path)  # get the common dir between paths found with glob
 
     list_features_path = [os.path.join(
@@ -183,7 +173,6 @@ def main(videos_path, features_path, frame_width):
             video_name = os.path.split(v_path)[1]
 
             if not os.path.isdir(of_path):
-                print('optical flow is calculated for {}'.format(video_name))
                 os.makedirs(of_path)
 
                 print('get angles and magnitudes')
@@ -194,8 +183,8 @@ def main(videos_path, features_path, frame_width):
 
                 scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
 
-                # print('write results to csv')
-                # write_mag_to_csv(f_path, scaled_segments, timestamps)
+                print('write results to csv')
+                write_mag_to_csv(f_path, scaled_segments, timestamps)
 
                 # create a hidden file to signal that the optical flow for a movie is done
                 # write the current version of the script in the file
