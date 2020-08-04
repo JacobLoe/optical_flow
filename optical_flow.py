@@ -74,9 +74,9 @@ def get_optical_flow(v_path, frame_width):
     summed_mags = []    # list of summed up magnitudes
     timestamps = []         # list of timestamps, corresponding to summed_mags
     angles_histogram_list = []
-    timestamp_frames = 0    # timestamp iterator, counted in frames
     step_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*step_size/1000)  # convert the step_size and window_size from ms to frames, dependent on the fps of the movie
     window_size_in_frames = int(vid.get(cv2.CAP_PROP_FPS)*window_size/1000)
+    timestamp_frames = max(0, 0-int(window_size_in_frames/2))    # timestamp iterator, counted in frames
 
     timestamps.append((int(timestamp_frames/vid.get(cv2.CAP_PROP_FPS)*1000)))
 
@@ -84,11 +84,11 @@ def get_optical_flow(v_path, frame_width):
     # save the optical flow at each timestamp
     while vid.isOpened():
         # read the frame at the current timestamp, stop the reading if the video is finished
-        ret, curr_frame = read_frame(vid, timestamp_frames, frame_width)
+        ret, curr_frame = read_frame(vid, timestamp_frames - int(window_size_in_frames/2), frame_width)
         if not ret:
             break
         # read the "future" frame, at the end of the window, stop the reading if the video is finished
-        ret, future_frame = read_frame(vid, timestamp_frames + window_size_in_frames, frame_width)
+        ret, future_frame = read_frame(vid, timestamp_frames + int(window_size_in_frames/2), frame_width)
         if not ret:
             break
         # calculate the optical flow for the current and the future frame, return the summed up magnitudes and a histogram for the angles found between the frames
