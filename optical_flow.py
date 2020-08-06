@@ -11,7 +11,9 @@ from idmapper import  TSVIdMapper
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
-VERSION = '20200804'      # the version of the script
+
+EXTRACTOR = "opticalflow"
+VERSION = '20200806'      # the version of the script
 aggregate = np.mean
 
 
@@ -195,15 +197,8 @@ def write_mag_to_csv(f_path, mag, segment_timestamps):
         f.write(line)
 
 
-def main(videos_path, features_path, videoids, idmapper, frame_width=129, step_size=300, window_size=300):
-    #list_videos_path = glob.glob(os.path.join(videos_path, '**/*.mp4'), recursive=True)  # get the list of videos in videos_dir
-    #cp = os.path.commonprefix(list_videos_path)  # get the common dir between paths found with glob
-
-    #list_features_path = [os.path.join(
-    #                     os.path.join(features_path,
-    #                     os.path.relpath(p, cp))[:-4])
-    #                     for p in list_videos_path]  # create a list of paths where all the data (segment-detection,frames,features) are saved to
-
+def main(videos_root, features_root, videoids, idmapper, frame_width=129, step_size=300, window_size=300):
+    print("Computing optical flow for {0} videos".format(len(videoids)))
     done = 0
     while done < len(videoids):
         for videoid in tqdm(videoids):
@@ -214,14 +209,20 @@ def main(videos_path, features_path, videoids, idmapper, frame_width=129, step_s
                 done += 1
 
             print(videoid, os.path.basename(video_rel_path))
+            
+            features_dir = os.path.join(features_root,videoid,EXTRACTOR)
+
+            if not os.path.isdir(features_dir):
+               os.makedirs(features_dir)
 
             #FIXME: extractor as class, "opticalflow" as property, version as property
-            features_fname = "{videoid}.opticalflow.csv".format(videoid=videoid)
-            features_fname = "{video_fname}.opticalflow.csv".format(video_fname=os.path.basename(video_rel_path))
-            f_path = os.path.join(features_path, features_fname)
-            done_file_path = os.path.join(features_path, '.'+features_fname)
+            features_fname_vid = "{videoid}.opticalflow.csv".format(videoid=videoid)
+            #features_fname_vfn = "{video_fname}.opticalflow.csv".format(video_fname=os.path.splitext(os.path.basename(video_rel_path))[0])
+            f_path_vid = os.path.join(features_dir, features_fname_vid)
+            #f_path_vfn = os.path.join(features_dir, features_fname_vfn)
+            done_file_path = os.path.join(features_dir, '.' + features_fname_vid)
 
-            v_path = os.path.join(videos_path, video_rel_path)
+            v_path = os.path.join(videos_root, video_rel_path)
 
             if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == VERSION:
                 print("Optical flow results missing or version did not match")
@@ -236,7 +237,7 @@ def main(videos_path, features_path, videoids, idmapper, frame_width=129, step_s
                 scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
 
                 print('Write results to csv')
-                write_mag_to_csv(f_path, scaled_segments, timestamps)
+                write_mag_to_csv(f_path_vid, scaled_segments, timestamps)
 
                 # create a hidden file to signal that the optical flow for a movie is done
                 # write the current version of the script in the file
@@ -254,7 +255,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("videos_dir", help="the directory where the video-files are stored")
     parser.add_argument("features_dir", help="the directory where the images are to be stored")
-    parser.add_argument("videoids", help="List of video ids", nargs='+')
+    parser.add_argument("videoids", help="List of video ids. If empty, entire corpus is iterated.", nargs='*')
     parser.add_argument("--frame_width", type=int, default=129, help="set the width at which to which the frames are rescaled, default is 129")
     parser.add_argument("--step_size", type=int, default=300, help="defines at which distances the optical flow is calculated, in milliseconds, default is 300")
     parser.add_argument("--window_size", type=int, default=300,
@@ -270,4 +271,5 @@ if __name__ == "__main__":
 
     # FIXME: make more generic once workflow is setup
     idmapper = TSVIdMapper('/root/file_mappings.tsv')
-    main(args.videos_dir, args.features_dir, args.videoids, idmapper, args.frame_width, args.step_size, args.window_size)
+    videoids = args.videoids if len(args.videoids)>0 else idmapper.get_ids()
+    main(args.videos_dir, args.features_dir, videoids, idmapper, args.frame_width, args.step_size, args.window_size)
