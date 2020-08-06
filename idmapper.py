@@ -10,3 +10,6 @@ class TSVIdMapper(IdMapper):
 
    def get_filename(self, videoid):
       return self._ids[videoid]
+
+   def get_ids(self):
+      return list(self._ids.keys())
