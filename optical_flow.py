@@ -220,7 +220,7 @@ def main(videos_root, features_root, videoids, idmapper, frame_width=129, step_s
             #features_fname_vfn = "{video_fname}.opticalflow.csv".format(video_fname=os.path.splitext(os.path.basename(video_rel_path))[0])
             f_path_vid = os.path.join(features_dir, features_fname_vid)
             #f_path_vfn = os.path.join(features_dir, features_fname_vfn)
-            done_file_path = os.path.join(features_dir, '.' + features_fname_vid)
+            done_file_path = os.path.join(features_dir, '.done')
 
             v_path = os.path.join(videos_root, video_rel_path)
 
