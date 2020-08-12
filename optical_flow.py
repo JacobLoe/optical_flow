@@ -158,7 +158,7 @@ def scale_magnitudes(mag, top_percentile):
 
 def write_mag_to_csv(f_path, mag, segment_timestamps):
     with open(f_path, 'w', newline='') as f:
-        mag = " ".join(mag)
+        mag = " ".join([str(m) for m in mag])
         line = str(segment_timestamps[0]) + '\t' + str(segment_timestamps[1]) + '\t' + mag
         f.write(line)
 
