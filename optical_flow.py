@@ -13,7 +13,7 @@ BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]     #
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 EXTRACTOR = "opticalflow"
-VERSION = '20200806'      # the version of the script
+VERSION = '20200812'      # the version of the script
 aggregate = np.mean
 
 
@@ -192,7 +192,7 @@ def write_mag_to_csv(f_path, mag, segment_timestamps):
     #mag_csv_path = os.path.join(f_path, 'optical_flow/mag_optical_flow_{}.csv'.format(os.path.split(f_path)[1]))
 
     with open(f_path, 'w', newline='') as f:
-        mag = str(mag).strip('[').strip(']').replace(',', ' ')
+        mag = " ".join(mag)
         line = str(segment_timestamps[0]) + '\t' + str(segment_timestamps[1]) + '\t' + mag
         f.write(line)
 
