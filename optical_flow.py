@@ -11,7 +11,7 @@ BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 EXTRACTOR = "opticalflow"
-VERSION = '20200808'      # the version of the script
+VERSION = '20200812'      # the version of the script
 aggregate = np.mean
 
 
@@ -158,7 +158,7 @@ def scale_magnitudes(mag, top_percentile):
 
 def write_mag_to_csv(f_path, mag, segment_timestamps):
     with open(f_path, 'w', newline='') as f:
-        mag = str(mag).strip('[').strip(']').replace(',', ' ')
+        mag = " ".join([str(m) for m in mag])
         line = str(segment_timestamps[0]) + '\t' + str(segment_timestamps[1]) + '\t' + mag
         f.write(line)
 
@@ -174,6 +174,8 @@ def main(videos_root, features_root, videoids, idmapper, frame_width=129):
                 print("No such videoid: '{videoid}'".format(videoid=videoid))
                 done += 1
 
+            print(videoid, os.path.basename(video_rel_path))
+
             video_name = os.path.basename(video_rel_path)[:-4]
             features_dir = os.path.join(features_root, videoid, EXTRACTOR)
 
@@ -181,8 +183,8 @@ def main(videos_root, features_root, videoids, idmapper, frame_width=129):
                 os.makedirs(features_dir)
 
             # FIXME: extractor as class, "opticalflow" as property, version as property
-            features_fname_vid = "{videoid}.opticalflow.csv".format(videoid=videoid)
-            # features_fname_vfn = "{video_fname}.opticalflow.csv".format(video_fname=os.path.splitext(os.path.basename(video_rel_path))[0])
+            features_fname_vid = "{videoid}.{extractor}.csv".format(videoid=videoid, extractor=EXTRACTOR)
+            # features_fname_vfn = "{video_fname}.{extractor}.csv".format(video_fname=os.path.splitext(os.path.basename(video_rel_path))[0], extractor=EXTRACTOR)
             f_path_csv = os.path.join(features_dir, features_fname_vid)
             # f_path_vfn = os.path.join(features_dir, features_fname_vfn)
             done_file_path = os.path.join(features_dir, '.done')
