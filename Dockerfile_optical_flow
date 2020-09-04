@@ -1,5 +1,5 @@
 # docker build -f Dockerfile_optical_flow -t jacobloe/optical_flow:0.1 .
-# docker run --rm -it -v $(pwd)/../videos:/video:ro -v $(pwd)/static/features_videos:/data jacobloe/optical_flow:0.1 /video /data/
+# docker run --rm -it -v $(pwd)/../videos:/video:ro -v $(pwd)/static/features_videos:/data jacobloe/optical_flow:0.1 /video /data/ /video/file_mappings.tsv
 
 FROM python:3.8
 
