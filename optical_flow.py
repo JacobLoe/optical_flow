@@ -163,7 +163,7 @@ def write_mag_to_csv(f_path, mag, segment_timestamps):
         f.write(line)
 
 
-def main(videos_root, features_root, videoids, idmapper, frame_width=129):
+def main(videos_root, features_root, frame_width, videoids, idmapper):
     print("Computing optical flow for {0} videos".format(len(videoids)))
     done = 0
     while done < len(videoids):
@@ -222,8 +222,7 @@ if __name__ == "__main__":
     parser.add_argument("--window_size", type=int, default=300,
                         help="defines the range in which images for optical flow calculation are extracted,"
                              " if window_size is equal to step_size two frames are extracted, default is 300")
-    parser.add_argument("--top_percentile", type=int, default=5, help="set the percentage of magnitudes that are used to determine the max magnitude,"
-                                                                      "")
+    parser.add_argument("--top_percentile", type=int, default=5, help="set the percentage of magnitudes that are used to determine the max magnitude,""")
     args = parser.parse_args()
 
     step_size = args.step_size
@@ -232,5 +231,6 @@ if __name__ == "__main__":
 
     # FIXME: make more generic once workflow is setup
     idmapper = TSVIdMapper(args.file_mappings)
-    videoids = args.videoids if len(args.videoids) > 0 else idmapper.get_ids()
-    main(args.videos_dir, args.features_dir, videoids, idmapper, args.frame_width)
+    videoids = args.videoids if len(args.videoids) > 0 else parser.error('no videoids found')
+
+    main(args.videos_dir, args.features_dir, args.frame_width, videoids, idmapper)
