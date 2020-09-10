@@ -11,7 +11,7 @@ BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 EXTRACTOR = "opticalflow"
-VERSION = '20200812'      # the version of the script
+VERSION = '20200910'      # the version of the script
 aggregate = np.mean
 
 
@@ -191,7 +191,10 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
 
             v_path = os.path.join(videos_root, video_rel_path)
 
-            if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == VERSION:
+            # create the version for a run, based on the script version and the used parameters
+            done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+str(top_percentile)
+
+            if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version:
                 print("Optical flow results missing or version did not match, starting extraction for {video_name}".format(video_name=video_name))
 
                 aggregated_segments, timestamps = get_optical_flow(v_path, frame_width)
@@ -202,7 +205,7 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
                 # create a hidden file to signal that the optical flow for a movie is done
                 # write the current version of the script in the file
                 with open(done_file_path, 'w') as d:
-                    d.write(VERSION)
+                    d.write(done_version)
                 done += 1  # count the instances of the optical flow done correctly
             else:
                 # do nothing if a .done-file exists and the versions in the file and the script match
