@@ -12,6 +12,7 @@ ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 EXTRACTOR = "opticalflow"
 VERSION = '20200910'      # the version of the script
+STANDALONE = False  # manages the creation of .done-files, if set to false no .done-files are created and the script will always overwrite old results
 aggregate = np.mean
 
 
@@ -165,52 +166,48 @@ def write_mag_to_csv(f_path, mag, segment_timestamps):
 
 def main(videos_root, features_root, frame_width, videoids, idmapper):
     print("Computing optical flow for {0} videos".format(len(videoids)))
-    done = 0
-    while done < len(videoids):
-        for videoid in tqdm(videoids):
-            try:
-                video_rel_path = idmapper.get_filename(videoid)
-            except KeyError as err:
-                print("No such videoid: '{videoid}'".format(videoid=videoid))
-                done += 1
+    for videoid in tqdm(videoids):
+        try:
+            video_rel_path = idmapper.get_filename(videoid)
+        except KeyError as err:
+            print("No such videoid: '{videoid}'".format(videoid=videoid))
 
-            print(videoid, os.path.basename(video_rel_path))
+        print(videoid, os.path.basename(video_rel_path))
 
-            video_name = os.path.basename(video_rel_path)[:-4]
-            features_dir = os.path.join(features_root, videoid, EXTRACTOR)
+        video_name = os.path.basename(video_rel_path)[:-4]
+        features_dir = os.path.join(features_root, videoid, EXTRACTOR)
 
-            if not os.path.isdir(features_dir):
-                os.makedirs(features_dir)
+        if not os.path.isdir(features_dir):
+            os.makedirs(features_dir)
 
-            # FIXME: extractor as class, "opticalflow" as property, version as property
-            features_fname_vid = "{videoid}.{extractor}.csv".format(videoid=videoid, extractor=EXTRACTOR)
-            # features_fname_vfn = "{video_fname}.{extractor}.csv".format(video_fname=os.path.splitext(os.path.basename(video_rel_path))[0], extractor=EXTRACTOR)
-            f_path_csv = os.path.join(features_dir, features_fname_vid)
-            # f_path_vfn = os.path.join(features_dir, features_fname_vfn)
-            done_file_path = os.path.join(features_dir, '.done')
+        # FIXME: extractor as class, "opticalflow" as property, version as property
+        features_fname_vid = "{videoid}.{extractor}.csv".format(videoid=videoid, extractor=EXTRACTOR)
+        # features_fname_vfn = "{video_fname}.{extractor}.csv".format(video_fname=os.path.splitext(os.path.basename(video_rel_path))[0], extractor=EXTRACTOR)
+        f_path_csv = os.path.join(features_dir, features_fname_vid)
+        # f_path_vfn = os.path.join(features_dir, features_fname_vfn)
+        done_file_path = os.path.join(features_dir, '.done')
 
-            v_path = os.path.join(videos_root, video_rel_path)
+        v_path = os.path.join(videos_root, video_rel_path)
 
-            # create the version for a run, based on the script version and the used parameters
-            done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+str(top_percentile)
+        # create the version for a run, based on the script version and the used parameters
+        done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+str(top_percentile)
 
-            if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version:
-                print("Optical flow results missing or version did not match, starting extraction for {video_name}".format(video_name=video_name))
+        if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version:
+            print("Optical flow results missing or version did not match, starting extraction for {video_name}".format(video_name=video_name))
 
-                aggregated_segments, timestamps = get_optical_flow(v_path, frame_width)
-                scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
+            aggregated_segments, timestamps = get_optical_flow(v_path, frame_width)
+            scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
 
-                write_mag_to_csv(f_path_csv, scaled_segments, timestamps)
+            write_mag_to_csv(f_path_csv, scaled_segments, timestamps)
 
-                # create a hidden file to signal that the optical flow for a movie is done
-                # write the current version of the script in the file
+            # create a hidden file to signal that the optical flow for a movie is done
+            # write the current version of the script in the file
+            if STANDALONE:
                 with open(done_file_path, 'w') as d:
                     d.write(done_version)
-                done += 1  # count the instances of the optical flow done correctly
-            else:
-                # do nothing if a .done-file exists and the versions in the file and the script match
-                done += 1  # count the instances of the optical flow done correctly
-                print('optical flow was already done for {video}'.format(video=video_rel_path))
+        else:
+            # do nothing if a .done-file exists and the versions in the file and the script match
+            print('optical flow was already done for {video}'.format(video=video_rel_path))
 
 
 if __name__ == "__main__":
