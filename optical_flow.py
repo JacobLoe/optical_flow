@@ -13,21 +13,9 @@ ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 EXTRACTOR = "opticalflow"
 VERSION = '20200910'      # the version of the script
 STANDALONE = False  # manages the creation of .done-files, if set to false no .done-files are created and the script will always overwrite old results
-aggregate = np.mean
-
 
 # FIXME: class version for extractors
 # FIXME: replace prints by logger
-
-def bin_values(value, bins):
-
-    distances = []
-    for b in bins:  # compute distance of the input to each bin
-        distances.append(euclidean(b, value))
-
-    i = np.argmin(distances)
-    new_value = bins[i]
-    return new_value
 
 
 def resize_frame(frame, frame_width):
@@ -102,7 +90,9 @@ def get_optical_flow(v_path, frame_width):
             raise IOError("Unable to read end frame {f} from video: '{v_path}'".format(f=end, v_path=v_path))
 
         mag = calculate_optical_flow(start_frame, end_frame)
-        mags.append((start,end,mag))
+        if not mag:
+            raise Exception('No optical flow between frame "{start_frame}" and frame "{end_frame}"'.format(start_frame=start_frame, end_frame=end_frame))
+        mags.append((start, end, mag))
 
     vid.release()
     cv2.destroyAllWindows()
@@ -119,34 +109,6 @@ def get_optical_flow(v_path, frame_width):
     end_ms = int(agg_mags[-1][0]/fps*1000)
 
     return [mag[1] for mag in agg_mags], [start_ms, end_ms]
-
-
-def aggregate_segments(summed_mags):
-    aggregated_segments = []   # list of aggregated magnitudes
-
-    ratio = window_size / step_size     # determines whether segments are aggregated or not, values <=1 mean no aggregation is happening (no segments are overlapping)
-    segments_to_aggregate = int(ratio)     # determines how many segments are aggregated together
-    if segments_to_aggregate == 1 and ratio > 1:   # if the ratio is greater than 1 there are segments to be aggregated, but the ratio would be rounded down to 1 in the next step
-        segments_to_aggregate = 2                  # and prevent segment aggregation. To prevent this from happening segments_to_aggregate is set to 2
-
-    step = int(segments_to_aggregate/2)
-
-    if ratio <= 1:  # do nothing if the segments are not overlapping
-        aggregated_segments = summed_mags
-    else:
-        for i in range(len(summed_mags)):
-            if i < (segments_to_aggregate-1):   # aggregate at timestamps where less segments then segments_to_aggregate where extracted
-
-                overlapping_segments = summed_mags[i:i+i+1]     # take the the number of overlapping segments at the timestamp (less than segments_to_aggregate
-                                                                # only "future" timestamps are used here
-                aggregated_mags = aggregate(overlapping_segments)      # with the aggregate function, create one value
-                aggregated_segments.append(aggregated_mags)
-            else:
-                overlapping_segments = summed_mags[i-step:i+step]     # get the overlapping segments from summed mags
-                aggregated_mags = aggregate(overlapping_segments)      # with the aggregate function, create one value
-                aggregated_segments.append(aggregated_mags)
-
-    return aggregated_segments
 
 
 def scale_magnitudes(mag, top_percentile):
@@ -170,9 +132,7 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
         try:
             video_rel_path = idmapper.get_filename(videoid)
         except KeyError as err:
-            print("No such videoid: '{videoid}'".format(videoid=videoid))
-
-        print(videoid, os.path.basename(video_rel_path))
+            raise Exception("No such videoid: '{videoid}'".format(videoid=videoid))
 
         video_name = os.path.basename(video_rel_path)[:-4]
         features_dir = os.path.join(features_root, videoid, EXTRACTOR)
@@ -193,7 +153,7 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
         done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+str(top_percentile)
 
         if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version:
-            print("Optical flow results missing or version did not match, starting extraction for {video_name}".format(video_name=video_name))
+            print('Optical flow results missing or version did not match, starting extraction for "{video_name}"'.format(video_name=video_name))
 
             aggregated_segments, timestamps = get_optical_flow(v_path, frame_width)
             scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
@@ -207,7 +167,7 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
                     d.write(done_version)
         else:
             # do nothing if a .done-file exists and the versions in the file and the script match
-            print('optical flow was already done for {video}'.format(video=video_rel_path))
+            print('optical flow was already done for "{video}"'.format(video=video_rel_path))
 
 
 if __name__ == "__main__":
