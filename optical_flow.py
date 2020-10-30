@@ -11,7 +11,7 @@ BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 EXTRACTOR = "opticalflow"
-VERSION = '20200910'      # the version of the script
+VERSION = '20200930'      # the version of the script
 STANDALONE = False  # manages the creation of .done-files, if set to false no .done-files are created and the script will always overwrite old results
 
 # FIXME: class version for extractors
@@ -62,7 +62,7 @@ def calculate_optical_flow(frame1, frame2):
     return summed_mags
 
 
-def get_optical_flow(v_path, frame_width):
+def get_optical_flow(v_path, frame_width, video_name):
 
     vid = cv2.VideoCapture(v_path)
     if not vid.isOpened():
@@ -79,21 +79,23 @@ def get_optical_flow(v_path, frame_width):
     for start, end in windows:
         if not vid.isOpened():
             raise IOError("Unable to read from video: '{v_path}'".format(v_path=v_path))
-        
+
+        # if either frame is missing the optical flow can not the be computed
+        # it is then assumed that the end of the video is reached
         ret, start_frame = read_frame(vid, start, frame_width)
         if not ret or start_frame is None:
-            raise IOError("Unable to read start frame {f} from video: '{v_path}'".format(f=start, v_path=v_path))
+            break
 
         ret, end_frame = read_frame(vid, end, frame_width)
         
         if not ret or end_frame is None:
-            raise IOError("Unable to read end frame {f} from video: '{v_path}'".format(f=end, v_path=v_path))
+            break
 
         mag = calculate_optical_flow(start_frame, end_frame)
-        if not mag:
-            raise Exception('No optical flow between frame "{start_frame}" and frame "{end_frame}"'.format(start_frame=start_frame, end_frame=end_frame))
         mags.append((start, end, mag))
-
+    # raise an exception if the no magnitudes where computed
+    if not mags:
+        raise Exception('Unable to extract the optical flow from "{videoname}", no frames where found.'.format(videoname=video_name))
     vid.release()
     cv2.destroyAllWindows()
 
@@ -155,7 +157,7 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
         if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version:
             print('Optical flow results missing or version did not match, starting extraction for "{video_name}"'.format(video_name=video_name))
 
-            aggregated_segments, timestamps = get_optical_flow(v_path, frame_width)
+            aggregated_segments, timestamps = get_optical_flow(v_path, frame_width, video_name)
             scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
 
             write_mag_to_csv(f_path_csv, scaled_segments, timestamps)
