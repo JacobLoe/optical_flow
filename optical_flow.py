@@ -12,7 +12,7 @@ ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 EXTRACTOR = "opticalflow"
 VERSION = '20200930'      # the version of the script
-STANDALONE = False  # manages the creation of .done-files, if set to false no .done-files are created and the script will always overwrite old results
+STANDALONE = True   # manages the creation of .done-files, if set to True no .done-files are created and the script will always overwrite old results
 
 # FIXME: class version for extractors
 # FIXME: replace prints by logger
@@ -154,7 +154,7 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
         # create the version for a run, based on the script version and the used parameters
         done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+str(top_percentile)
 
-        if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version:
+        if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version or force_run:
             print('Optical flow results missing or version did not match, starting extraction for "{video_name}"'.format(video_name=video_name))
 
             aggregated_segments, timestamps = get_optical_flow(v_path, frame_width, video_name)
@@ -185,8 +185,10 @@ if __name__ == "__main__":
                         help="defines the range in which images for optical flow calculation are extracted,"
                              " if window_size is equal to step_size two frames are extracted, default is 300")
     parser.add_argument("--top_percentile", type=int, default=5, help="set the percentage of magnitudes that are used to determine the max magnitude,""")
+    parser.add_argument("--force_run", default=False, type=bool, help='sets whether the script runs regardless of the version of .done-files')
     args = parser.parse_args()
 
+    force_run = args.force_run
     step_size = args.step_size
     window_size = args.window_size
     top_percentile = args.top_percentile
