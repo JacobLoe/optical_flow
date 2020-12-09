@@ -1,6 +1,4 @@
 # docker build -f Dockerfile_optical_flow -t jacobloe/optical_flow:0.1 .
-# docker run --rm -it -v $(pwd)/../videos:/video:ro -v $(pwd)/static/features_videos:/data jacobloe/optical_flow:0.1 /video /data/ /video/file_mappings.tsv
-
 FROM python:3.8
 
 ENV DEBIAN_FRONTEND noninteractive
@@ -11,9 +9,7 @@ RUN pip3 install --trusted-host pypi.python.org -r /root/requirements_optical_fl
 RUN apt-get update && apt-get install -y vim
 
 COPY optical_flow.py /root
-COPY idmapper.py /root
 
-VOLUME "/video"
 VOLUME "/data"
 
 WORKDIR /root

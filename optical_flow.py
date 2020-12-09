@@ -3,15 +3,13 @@ import cv2
 import os
 import argparse
 from tqdm import tqdm
-from scipy.spatial.distance import euclidean
 
-from idmapper import TSVIdMapper
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
 
 EXTRACTOR = "opticalflow"
-VERSION = '20200930'      # the version of the script
+VERSION = '20201209'      # the date the script was last changed
 STANDALONE = True   # manages the creation of .done-files, if set to True no .done-files are created and the script will always overwrite old results
 
 # FIXME: class version for extractors
@@ -62,7 +60,7 @@ def calculate_optical_flow(frame1, frame2):
     return summed_mags
 
 
-def get_optical_flow(v_path, frame_width, video_name):
+def get_optical_flow(v_path, frame_width, step_size, window_size):
 
     vid = cv2.VideoCapture(v_path)
     if not vid.isOpened():
@@ -95,14 +93,14 @@ def get_optical_flow(v_path, frame_width, video_name):
         mags.append((start, end, mag))
     # raise an exception if the no magnitudes where computed
     if not mags:
-        raise Exception('Unable to extract the optical flow from "{videoname}", no frames where found.'.format(videoname=video_name))
+        raise Exception('Unable to extract the optical flow, no frames where found.')
     vid.release()
     cv2.destroyAllWindows()
 
     agg_mags = list()
     for pos in range(0, tot_frames, step_size_in_frames):
-        agg_mag = [mag[2] for mag in mags if pos>=mag[0] and pos<mag[1]]
-        if len(agg_mag)>0:
+        agg_mag = [mag[2] for mag in mags if pos >= mag[0] and pos < mag[1]]
+        if len(agg_mag) > 0:
             agg_mags.append((pos, np.mean(agg_mag)))
         else:
             print("WARN: no entry for pos={pos}".format(pos=pos))
@@ -128,36 +126,29 @@ def write_mag_to_csv(f_path, mag, segment_timestamps):
         f.write(line)
 
 
-def main(videos_root, features_root, frame_width, videoids, idmapper):
+def main(features_root, frame_width, step_size, window_size, top_percentile, videoids, force_run):
     print("Computing optical flow for {0} videos".format(len(videoids)))
     for videoid in tqdm(videoids):
-        try:
-            video_rel_path = idmapper.get_filename(videoid)
-        except KeyError as err:
-            raise Exception("No such videoid: '{videoid}'".format(videoid=videoid))
 
-        video_name = os.path.basename(video_rel_path)[:-4]
         features_dir = os.path.join(features_root, videoid, EXTRACTOR)
+
+        v_path = os.path.join(features_root, videoid, 'media', videoid+'.mp4')
 
         if not os.path.isdir(features_dir):
             os.makedirs(features_dir)
 
         # FIXME: extractor as class, "opticalflow" as property, version as property
         features_fname_vid = "{videoid}.{extractor}.csv".format(videoid=videoid, extractor=EXTRACTOR)
-        # features_fname_vfn = "{video_fname}.{extractor}.csv".format(video_fname=os.path.splitext(os.path.basename(video_rel_path))[0], extractor=EXTRACTOR)
         f_path_csv = os.path.join(features_dir, features_fname_vid)
-        # f_path_vfn = os.path.join(features_dir, features_fname_vfn)
         done_file_path = os.path.join(features_dir, '.done')
-
-        v_path = os.path.join(videos_root, video_rel_path)
 
         # create the version for a run, based on the script version and the used parameters
         done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+str(top_percentile)
 
         if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version or force_run:
-            print('Optical flow results missing or version did not match, starting extraction for "{video_name}"'.format(video_name=video_name))
+            print('Optical flow results missing or version did not match, starting extraction')
 
-            aggregated_segments, timestamps = get_optical_flow(v_path, frame_width, video_name)
+            aggregated_segments, timestamps = get_optical_flow(v_path, frame_width, step_size, window_size)
             scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
 
             write_mag_to_csv(f_path_csv, scaled_segments, timestamps)
@@ -169,15 +160,13 @@ def main(videos_root, features_root, frame_width, videoids, idmapper):
                     d.write(done_version)
         else:
             # do nothing if a .done-file exists and the versions in the file and the script match
-            print('optical flow was already done for "{video}"'.format(video=video_rel_path))
+            print('optical flow was already done')
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("videos_dir", help="the directory where the video-files are stored")
     parser.add_argument("features_dir", help="the directory where the images are to be stored")
-    parser.add_argument('file_mappings', help='path to file mappings .tsv-file')
     parser.add_argument("videoids", help="List of video ids. If empty, entire corpus is iterated.", nargs='*')
     parser.add_argument("--frame_width", type=int, default=129, help="set the width at which to which the frames are rescaled, default is 129")
     parser.add_argument("--step_size", type=int, default=300, help="defines at which distances the optical flow is calculated, in milliseconds, default is 300")
@@ -188,13 +177,4 @@ if __name__ == "__main__":
     parser.add_argument("--force_run", default=False, type=bool, help='sets whether the script runs regardless of the version of .done-files')
     args = parser.parse_args()
 
-    force_run = args.force_run
-    step_size = args.step_size
-    window_size = args.window_size
-    top_percentile = args.top_percentile
-
-    # FIXME: make more generic once workflow is setup
-    idmapper = TSVIdMapper(args.file_mappings)
-    videoids = args.videoids if len(args.videoids) > 0 else parser.error('no videoids found')
-
-    main(args.videos_dir, args.features_dir, args.frame_width, videoids, idmapper)
+    main(args.features_dir, args.frame_width, args.step_size, args.window_size, args.top_percentile, args.videoids, args.force_run)
