@@ -3,7 +3,7 @@ import cv2
 import os
 import argparse
 from tqdm import tqdm
-
+import logging
 
 BINS = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
 ANGLE_BINS = [0, 45, 90, 135, 180, 225, 270, 315, 360]
@@ -12,8 +12,14 @@ EXTRACTOR = "opticalflow"
 VERSION = '20201209'      # the date the script was last changed
 STANDALONE = True   # manages the creation of .done-files, if set to True no .done-files are created and the script will always overwrite old results
 
-# FIXME: class version for extractors
-# FIXME: replace prints by logger
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+ch = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+logger.propagate = False    # prevent log messages from appearing twice
 
 
 def resize_frame(frame, frame_width):
@@ -103,7 +109,7 @@ def get_optical_flow(v_path, frame_width, step_size, window_size):
         if len(agg_mag) > 0:
             agg_mags.append((pos, np.mean(agg_mag)))
         else:
-            print("WARN: no entry for pos={pos}".format(pos=pos))
+            logger.info("WARN: no entry for pos={pos}".format(pos=pos))
 
     start_ms = int(agg_mags[0][0]/fps*1000)
     end_ms = int(agg_mags[-1][0]/fps*1000)
@@ -127,7 +133,7 @@ def write_mag_to_csv(f_path, mag, segment_timestamps):
 
 
 def main(features_root, frame_width, step_size, window_size, top_percentile, videoids, force_run):
-    print("Computing optical flow for {0} videos".format(len(videoids)))
+    logger.info("Computing optical flow for {0} videos".format(len(videoids)))
     for videoid in tqdm(videoids):
 
         features_dir = os.path.join(features_root, videoid, EXTRACTOR)
@@ -138,15 +144,14 @@ def main(features_root, frame_width, step_size, window_size, top_percentile, vid
             os.makedirs(features_dir)
 
         # FIXME: extractor as class, "opticalflow" as property, version as property
-        features_fname_vid = "{videoid}.{extractor}.csv".format(videoid=videoid, extractor=EXTRACTOR)
+        features_fname_vid = "{videoid}.csv".format(videoid=videoid)
         f_path_csv = os.path.join(features_dir, features_fname_vid)
         done_file_path = os.path.join(features_dir, '.done')
 
         # create the version for a run, based on the script version and the used parameters
-        done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+str(top_percentile)
+        done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+'\n'+str(top_percentile)
 
         if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version or force_run:
-            print('Optical flow results missing or version did not match, starting extraction')
 
             aggregated_segments, timestamps = get_optical_flow(v_path, frame_width, step_size, window_size)
             scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
@@ -160,7 +165,7 @@ def main(features_root, frame_width, step_size, window_size, top_percentile, vid
                     d.write(done_version)
         else:
             # do nothing if a .done-file exists and the versions in the file and the script match
-            print('optical flow was already done')
+            logger.info('optical flow was already done')
 
 
 if __name__ == "__main__":
