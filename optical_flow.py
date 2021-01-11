@@ -171,7 +171,7 @@ def main(features_root, frame_width, step_size, window_size, top_percentile, vid
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("features_dir", help="the directory where the images are to be stored")
+    parser.add_argument("features_root", help="the directory where the images are to be stored")
     parser.add_argument("videoids", help="List of video ids. If empty, entire corpus is iterated.", nargs='*')
     parser.add_argument("--frame_width", type=int, default=129, help="set the width at which to which the frames are rescaled, default is 129")
     parser.add_argument("--step_size", type=int, default=300, help="defines at which distances the optical flow is calculated, in milliseconds, default is 300")
@@ -182,4 +182,4 @@ if __name__ == "__main__":
     parser.add_argument("--force_run", default='False', help='sets whether the script runs regardless of the version of .done-files')
     args = parser.parse_args()
 
-    main(args.features_dir, args.frame_width, args.step_size, args.window_size, args.top_percentile, args.videoids, args.force_run)
+    main(args.features_root, args.frame_width, args.step_size, args.window_size, args.top_percentile, args.videoids, args.force_run)
