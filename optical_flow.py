@@ -151,7 +151,7 @@ def main(features_root, frame_width, step_size, window_size, top_percentile, vid
         # create the version for a run, based on the script version and the used parameters
         done_version = VERSION+'\n'+str(frame_width)+'\n'+str(step_size)+'\n'+str(window_size)+'\n'+str(top_percentile)
 
-        if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version or force_run:
+        if not os.path.isfile(done_file_path) or not open(done_file_path, 'r').read() == done_version or force_run == 'True':
 
             aggregated_segments, timestamps = get_optical_flow(v_path, frame_width, step_size, window_size)
             scaled_segments = scale_magnitudes(aggregated_segments, top_percentile)
@@ -179,7 +179,7 @@ if __name__ == "__main__":
                         help="defines the range in which images for optical flow calculation are extracted,"
                              " if window_size is equal to step_size two frames are extracted, default is 300")
     parser.add_argument("--top_percentile", type=int, default=5, help="set the percentage of magnitudes that are used to determine the max magnitude,""")
-    parser.add_argument("--force_run", default=False, type=bool, help='sets whether the script runs regardless of the version of .done-files')
+    parser.add_argument("--force_run", default='False', help='sets whether the script runs regardless of the version of .done-files')
     args = parser.parse_args()
 
     main(args.features_dir, args.frame_width, args.step_size, args.window_size, args.top_percentile, args.videoids, args.force_run)
