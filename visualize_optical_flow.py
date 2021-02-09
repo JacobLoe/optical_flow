@@ -72,6 +72,4 @@ if __name__ == "__main__":
     parser.add_argument("shot_end", type=int, help="the end of a shot in milliseconds")
     args = parser.parse_args()
 
-    path = '../videos/movies/Ferguson_Charles_Inside_Job.mp4'
-
     get_optical_flow(args.video_dir, args.images_path, args.shot_begin, args.shot_end)
